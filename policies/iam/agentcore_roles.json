@@ -1,0 +1,251 @@
+{
+  "Description": "IAM role definitions for Amazon Bedrock AgentCore multi-tenant hands-on",
+  "Roles": {
+    "AgentCoreRuntimeRole": {
+      "Description": "Role assumed by the AgentCore Runtime to invoke Bedrock models, manage Gateway tools, access Memory, and write logs to CloudWatch.",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "bedrock.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole",
+            "Condition": {
+              "StringEquals": {
+                "aws:SourceAccount": "${AWS::AccountId}"
+              }
+            }
+          }
+        ]
+      },
+      "Policies": [
+        {
+          "PolicyName": "BedrockModelAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "InvokeBedrockModels",
+                "Effect": "Allow",
+                "Action": [
+                  "bedrock:InvokeModel",
+                  "bedrock:InvokeModelWithResponseStream"
+                ],
+                "Resource": [
+                  "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*",
+                  "arn:aws:bedrock:*::foundation-model/*"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "PolicyName": "AgentCoreGatewayAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "InvokeGatewayTools",
+                "Effect": "Allow",
+                "Action": [
+                  "bedrock:InvokeAgent",
+                  "bedrock:GetAgentRuntime",
+                  "bedrock:ListAgentRuntimes"
+                ],
+                "Resource": [
+                  "arn:aws:bedrock:*:${AWS::AccountId}:agent-runtime/*"
+                ]
+              },
+              {
+                "Sid": "AccessGateway",
+                "Effect": "Allow",
+                "Action": [
+                  "bedrock:GetToolGateway",
+                  "bedrock:ListToolGateways",
+                  "bedrock:InvokeTool"
+                ],
+                "Resource": [
+                  "arn:aws:bedrock:*:${AWS::AccountId}:tool-gateway/*"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "PolicyName": "AgentCoreMemoryAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "AccessMemoryStore",
+                "Effect": "Allow",
+                "Action": [
+                  "bedrock:GetMemory",
+                  "bedrock:ListMemories",
+                  "bedrock:CreateMemory",
+                  "bedrock:UpdateMemory",
+                  "bedrock:DeleteMemory",
+                  "bedrock:SearchMemory"
+                ],
+                "Resource": [
+                  "arn:aws:bedrock:*:${AWS::AccountId}:memory/*"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "PolicyName": "CloudWatchLogging",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "WriteCloudWatchLogs",
+                "Effect": "Allow",
+                "Action": [
+                  "logs:CreateLogGroup",
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents",
+                  "logs:DescribeLogGroups",
+                  "logs:DescribeLogStreams"
+                ],
+                "Resource": [
+                  "arn:aws:logs:*:${AWS::AccountId}:log-group:/aws/bedrock/agentcore/*"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "AgentCoreLambdaRole": {
+      "Description": "Role assumed by Lambda functions that serve as Gateway tools. Grants access to RDS for database queries and CloudWatch for logging.",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "lambda.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+          }
+        ]
+      },
+      "Policies": [
+        {
+          "PolicyName": "RDSDataAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "RDSDataAPIAccess",
+                "Effect": "Allow",
+                "Action": [
+                  "rds-data:ExecuteStatement",
+                  "rds-data:BatchExecuteStatement",
+                  "rds-data:BeginTransaction",
+                  "rds-data:CommitTransaction",
+                  "rds-data:RollbackTransaction"
+                ],
+                "Resource": [
+                  "arn:aws:rds:*:${AWS::AccountId}:cluster:agentcore-multi-tenant-*"
+                ]
+              },
+              {
+                "Sid": "SecretsManagerAccess",
+                "Effect": "Allow",
+                "Action": [
+                  "secretsmanager:GetSecretValue"
+                ],
+                "Resource": [
+                  "arn:aws:secretsmanager:*:${AWS::AccountId}:secret:agentcore-multi-tenant-*"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "PolicyName": "CloudWatchLogging",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "WriteLambdaLogs",
+                "Effect": "Allow",
+                "Action": [
+                  "logs:CreateLogGroup",
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents"
+                ],
+                "Resource": [
+                  "arn:aws:logs:*:${AWS::AccountId}:log-group:/aws/lambda/agentcore-multi-tenant-*"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "PolicyName": "VPCAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "ManageENI",
+                "Effect": "Allow",
+                "Action": [
+                  "ec2:CreateNetworkInterface",
+                  "ec2:DescribeNetworkInterfaces",
+                  "ec2:DeleteNetworkInterface"
+                ],
+                "Resource": "*"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "AgentCoreGatewayRole": {
+      "Description": "Role assumed by the AgentCore Gateway to invoke Lambda tool functions.",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "bedrock.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole",
+            "Condition": {
+              "StringEquals": {
+                "aws:SourceAccount": "${AWS::AccountId}"
+              }
+            }
+          }
+        ]
+      },
+      "Policies": [
+        {
+          "PolicyName": "LambdaInvocation",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "InvokeToolLambdas",
+                "Effect": "Allow",
+                "Action": [
+                  "lambda:InvokeFunction"
+                ],
+                "Resource": [
+                  "arn:aws:lambda:*:${AWS::AccountId}:function:agentcore-multi-tenant-*"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
