@@ -1,15 +1,15 @@
-# チャプター 02: AgentCore Runtime 基礎
+# チャプター 2: AgentCore Runtime 基礎
 
-本チャプターでは、AgentCore Runtime の基本概念を理解し、Strands Agents フレームワークでエージェントを作成、ローカルテスト、Runtime へのデプロイ、プログラムからの呼び出しまでを行います。
+本チャプターでは、AgentCore Runtime の基本概念を理解し、Strands Agents フレームワークでエージェントを作成、ローカルテスト、Runtime へのデプロイ、CLI からの呼び出しまでを行います。
 
 ## 目次
 
 - [Runtime の基本概念](#runtime-の基本概念)
-- [ステップ 1: Strands Agent の作成](#ステップ-1-strands-agent-の作成)
-- [ステップ 2: ローカルテスト](#ステップ-2-ローカルテスト)
-- [ステップ 3: Runtime へのデプロイ](#ステップ-3-runtime-へのデプロイ)
-- [ステップ 4: プログラムからの呼び出し](#ステップ-4-プログラムからの呼び出し)
-- [ステップ 5: WebSocket ストリーミング](#ステップ-5-websocket-ストリーミング)
+- [ステップ 1: プロジェクト構造の確認](#ステップ-1-プロジェクト構造の確認)
+- [ステップ 2: エージェントコードの理解](#ステップ-2-エージェントコードの理解)
+- [ステップ 3: ローカルテスト](#ステップ-3-ローカルテスト)
+- [ステップ 4: Runtime へのデプロイ](#ステップ-4-runtime-へのデプロイ)
+- [ステップ 5: エージェントの呼び出し](#ステップ-5-エージェントの呼び出し)
 - [確認手順](#確認手順)
 
 ---
@@ -68,574 +68,403 @@ sequenceDiagram
 
 ```
 ローカル開発 → ローカルテスト → デプロイ → 呼び出し → モニタリング
-  (コード作成)   (agentcore run)  (agentcore deploy)  (boto3/WebSocket)  (Observability)
+  (コード作成)   (agentcore dev)  (agentcore deploy)  (agentcore invoke)  (Observability)
 ```
 
 ---
 
-## ステップ 1: Strands Agent の作成
+## ステップ 1: プロジェクト構造の確認
 
-カスタマーサポートエージェントを Strands Agents フレームワークで作成します。
+本ハンズオンではカスタマーサポートエージェントのプロジェクトが `agents/customer_support/` に用意されています。まずはプロジェクト構造を確認します。
 
-### 1.1 ディレクトリ構成の確認
+### 1.1 プロジェクトの生成（参考）
+
+新規にプロジェクトを作成する場合は、以下のコマンドを使用します。
 
 ```bash
-cd agentcore-multi-tenant-handson
-ls agents/
+cd agents
+agentcore create -p customer_support -t basic --agent-framework Strands --model-provider Bedrock --non-interactive --no-venv
 ```
 
-### 1.2 エージェントコードの作成
+本ハンズオンではあらかじめ作成済みのプロジェクトを使用するため、以下のディレクトリに移動します。
 
-`agents/support_agent.py` を作成します。
+```bash
+cd agents/customer_support
+```
+
+### 1.2 ディレクトリ構造
+
+```
+agents/customer_support/
+├── .bedrock_agentcore.yaml   # AgentCore 設定ファイル
+├── pyproject.toml             # Python 依存関係
+├── Dockerfile                 # コンテナビルド用（オプション）
+└── src/
+    ├── main.py                # エントリポイント
+    ├── tools.py               # カスタムツール定義
+    └── model/
+        ├── __init__.py
+        └── load.py            # モデルローダー
+```
+
+> **重要**: `agentcore dev` や `agentcore deploy` は `.bedrock_agentcore.yaml` がある `agents/customer_support/` ディレクトリ内で実行する必要があります。
+
+### 1.3 設定ファイルの確認
+
+`.bedrock_agentcore.yaml` の主要な設定項目を確認します。
+
+```yaml
+default_agent: customersupport_Agent
+agents:
+  customersupport_Agent:
+    name: customersupport_Agent
+    language: python
+    entrypoint: src/main.py
+    deployment_type: direct_code_deploy
+    runtime_type: PYTHON_3_10
+    platform: linux/amd64
+    source_path: src
+    aws:
+      execution_role_auto_create: true
+      network_configuration:
+        network_mode: PUBLIC
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    memory:
+      mode: NO_MEMORY
+```
+
+主なポイント:
+- `entrypoint: src/main.py` -- Runtime が起動時に実行するファイル
+- `deployment_type: direct_code_deploy` -- ソースコードを直接デプロイ
+- `source_path: src` -- デプロイ対象のソースディレクトリ
+- `observability.enabled: true` -- オブザーバビリティが有効
+
+### 1.4 依存関係の確認
+
+`pyproject.toml` で定義された主要な依存パッケージを確認します。
+
+```toml
+[project]
+name = "customersupport"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+dependencies = [
+    "bedrock-agentcore >= 1.0.3",
+    "boto3 >= 1.38.0",
+    "strands-agents >= 1.13.0",
+    "strands-agents-tools >= 0.2.16",
+    "mcp >= 1.19.0",
+    "python-dotenv >= 1.2.1",
+]
+```
+
+- `bedrock-agentcore` -- AgentCore Runtime SDK
+- `strands-agents` -- Strands Agent フレームワーク
+- `mcp` -- MCP（Model Context Protocol）クライアント
+
+---
+
+## ステップ 2: エージェントコードの理解
+
+### 2.1 モデル設定 (`src/model/load.py`)
+
+Claude Sonnet 4.6 のクロスリージョン推論プロファイルを使用しています。
 
 ```python
-"""
-SupportHub カスタマーサポートエージェント
-マルチテナント SaaS 向けの基本エージェント実装
-"""
+from strands.models import BedrockModel
 
+# US クロスリージョン推論プロファイルで Claude Sonnet 4.6 を使用
+MODEL_ID = "us.anthropic.claude-sonnet-4-6"
+
+
+def load_model() -> BedrockModel:
+    """
+    Get Bedrock model client.
+    Uses IAM authentication via the execution role.
+    """
+    return BedrockModel(model_id=MODEL_ID)
+```
+
+### 2.2 カスタムツール (`src/tools.py`)
+
+エージェントが使用する 3 つのツールが定義されています。Strands の `@tool` デコレータで関数をツールとして宣言します。
+
+```python
+from strands import tool
+
+@tool
+def get_customer_info(tenant_id: str, customer_id: str = "", email: str = "") -> str:
+    """Look up customer information by tenant. Provide either customer_id or email."""
+    ...
+
+@tool
+def escalate_ticket(
+    tenant_id: str, ticket_id: str, reason: str,
+    priority: str = "high", assigned_team: str = "tier2-support",
+) -> str:
+    """Escalate a support ticket to a human agent or specialized team."""
+    ...
+
+@tool
+def get_faq(tenant_id: str, category: str = "", query: str = "") -> str:
+    """Retrieve FAQ answers for the tenant. Optionally filter by category or search query."""
+    ...
+```
+
+各ツールは `tenant_id` を必須パラメータとして受け取り、テナント固有のデータのみを返します。これにより、マルチテナント環境でのデータ分離が実現されています。
+
+### 2.3 エントリポイント (`src/main.py`)
+
+Runtime からのリクエストを処理するメインコードです。
+
+```python
 from strands import Agent, tool
-from strands.models.bedrock import BedrockModel
-
-
-# シンプルなツール定義（後のチャプターで Gateway 経由に置き換えます）
-@tool
-def get_greeting(customer_name: str) -> str:
-    """顧客に挨拶を返すツール。顧客名を受け取り、適切な挨拶メッセージを生成します。"""
-    return f"こんにちは、{customer_name} 様。本日はどのようなご用件でしょうか？"
-
-
-@tool
-def get_faq(question: str) -> str:
-    """よくある質問に回答するツール。質問内容から適切な FAQ エントリを検索します。"""
-    # 簡易的な FAQ データ（後のチャプターで実際のナレッジベースに置き換えます）
-    faq_data = {
-        "返品": "商品到着後 30 日以内であれば返品可能です。マイページの「注文履歴」から返品申請を行ってください。",
-        "配送": "通常配送は 3-5 営業日、お急ぎ便は翌日到着です。配送状況は注文確認メールのトラッキング番号で確認できます。",
-        "支払い": "クレジットカード、デビットカード、コンビニ払い、銀行振込に対応しています。",
-    }
-    for key, answer in faq_data.items():
-        if key in question:
-            return answer
-    return "申し訳ございません。該当する FAQ が見つかりませんでした。オペレーターにおつなぎしましょうか？"
-
-
-# エージェントの構成
-SYSTEM_PROMPT = """あなたは SupportHub のカスタマーサポートエージェントです。
-以下のルールに従って対応してください:
-
-1. 常に丁寧な日本語で応答すること
-2. 顧客の問い合わせ内容を正確に理解すること
-3. 利用可能なツールを活用して適切な情報を提供すること
-4. 解決できない場合は、人間のオペレーターへのエスカレーションを案内すること
-5. 個人情報の取り扱いには十分注意すること
-"""
-
-
-def create_agent() -> Agent:
-    """カスタマーサポートエージェントを作成して返す"""
-    model = BedrockModel(
-        model_id="us.anthropic.claude-sonnet-4-6",
-        region_name="us-east-1",
-    )
-
-    agent = Agent(
-        model=model,
-        system_prompt=SYSTEM_PROMPT,
-        tools=[get_greeting, get_faq],
-    )
-
-    return agent
-
-
-# ローカル実行用のエントリポイント
-if __name__ == "__main__":
-    agent = create_agent()
-    response = agent("返品について教えてください")
-    print(response)
-```
-
-### 1.3 BedrockAgentCoreApp でラップ
-
-`agents/app.py` を作成します。これは AgentCore Runtime にデプロイするためのエントリポイントです。
-
-```python
-"""
-AgentCore Runtime 用のエントリポイント
-BedrockAgentCoreApp でエージェントをラップし、Runtime で実行可能にする
-"""
-
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
-from support_agent import create_agent
+from model.load import load_model
+from tools import get_customer_info, escalate_ticket, get_faq
 
-
-# BedrockAgentCoreApp の初期化
 app = BedrockAgentCoreApp()
+log = app.logger
 
-# エージェントインスタンスを作成
-agent = create_agent()
-
-
-@app.handler
-def handler(event: dict) -> dict:
-    """
-    Runtime からのリクエストを処理するハンドラー
-
-    Args:
-        event: Runtime から渡されるイベント
-            - prompt: ユーザーのメッセージ
-            - session_id: セッション ID（オプション）
-            - tenant_id: テナント ID（オプション）
-
-    Returns:
-        dict: エージェントのレスポンス
-    """
-    prompt = event.get("prompt", "")
-    session_id = event.get("session_id", None)
-    tenant_id = event.get("tenant_id", None)
-
-    # テナント ID のログ出力（Observability で追跡可能）
-    if tenant_id:
-        print(f"[INFO] Processing request for tenant: {tenant_id}")
-
-    # エージェントの実行
-    response = agent(prompt)
-
-    return {
-        "response": str(response),
-        "session_id": session_id,
-        "tenant_id": tenant_id,
-    }
+SYSTEM_PROMPT = """あなたはマルチテナントSaaSプラットフォームのカスタマーサポートエージェントです。
+お客様からの問い合わせに対して、丁寧かつ正確にサポートを提供してください。
+...
+"""
 
 
-# アプリケーション起動
+def extract_tenant_context(payload: dict) -> dict:
+    """Extract tenant context from the invocation payload (JWT claims)."""
+    tenant_context = {}
+    session_attrs = payload.get("sessionAttributes", {})
+    if session_attrs:
+        tenant_context["tenant_id"] = session_attrs.get("tenantId", "")
+        tenant_context["tenant_name"] = session_attrs.get("tenantName", "")
+        tenant_context["plan"] = session_attrs.get("tenantPlan", "")
+    ...
+    return tenant_context
+
+
+@app.entrypoint
+async def invoke(payload, context):
+    session_id = getattr(context, 'session_id', 'default')
+    user_id = payload.get("user_id") or 'default-user'
+
+    # Extract tenant context
+    tenant_context = extract_tenant_context(payload)
+    tenant_id = tenant_context.get("tenant_id", "unknown")
+    log.info(f"Processing request for tenant: {tenant_id}")
+
+    # Build tenant-aware system prompt
+    tenant_prompt = SYSTEM_PROMPT
+    if tenant_context.get("tenant_id"):
+        tenant_prompt += f"""
+## 現在のテナント情報 / Current Tenant Context
+- Tenant ID: {tenant_context.get('tenant_id', 'unknown')}
+- Tenant Name: {tenant_context.get('tenant_name', 'unknown')}
+- Plan: {tenant_context.get('plan', 'unknown')}
+"""
+
+    # Create agent with model and tools
+    agent = Agent(
+        model=load_model(),
+        system_prompt=tenant_prompt,
+        tools=[get_customer_info, escalate_ticket, get_faq],
+    )
+
+    # Execute and stream response
+    stream = agent.stream_async(payload.get("prompt", "Hello!"))
+    async for event in stream:
+        if "data" in event and isinstance(event["data"], str):
+            yield event["data"]
+
+
 if __name__ == "__main__":
     app.run()
 ```
 
-### 1.4 設定ファイルの作成
+主要なポイント:
 
-`agents/agentcore.yaml` を作成します。
-
-```yaml
-# AgentCore Runtime 設定ファイル
-name: support-agent
-description: "SupportHub カスタマーサポートエージェント"
-
-# エントリポイント
-entrypoint: app.py
-
-# Python 依存関係
-requirements:
-  - strands-agents
-  - bedrock-agentcore
-
-# Runtime 設定
-runtime:
-  memory: 512  # MB
-  timeout: 300  # 秒
-
-# 環境変数
-environment:
-  AWS_DEFAULT_REGION: us-east-1
-```
+- `BedrockAgentCoreApp()` -- Runtime アプリケーションのインスタンスを作成
+- `@app.entrypoint` -- Runtime がリクエストを受け取ったときに呼び出されるエントリポイントを定義
+- `async def invoke(payload, context)` -- 非同期ジェネレータとして定義し、`yield` でストリーミングレスポンスを返す
+- `extract_tenant_context()` -- JWT クレームやセッション属性からテナント情報を抽出
+- `Agent(model=..., system_prompt=..., tools=[...])` -- Strands Agent を作成し、モデル・プロンプト・ツールを設定
+- `agent.stream_async()` -- ストリーミングでエージェントを実行
 
 ---
 
-## ステップ 2: ローカルテスト
+## ステップ 3: ローカルテスト
 
-`agentcore run` コマンドでローカル環境でエージェントをテストします。
+`agentcore dev` コマンドでローカル環境でエージェントをテストします。
 
-### 2.1 ローカル実行
+### 3.1 ローカル実行
 
 ```bash
-cd agents
-agentcore run
+cd agents/customer_support
+agentcore dev
 ```
 
 以下のような出力が表示されます。
 
 ```
-🚀 Starting local AgentCore runtime...
-📦 Loading agent from app.py...
-✅ Agent 'support-agent' is running locally
-🌐 Local endpoint: http://localhost:8080
+🚀 Starting development server with hot reloading
+Agent: customersupport_Agent
+💡 Test your agent with: agentcore invoke --dev "Hello" in a new terminal window
+
+Server will be available at:
+  • Localhost: http://localhost:8080/invocations
 ```
 
-### 2.2 別ターミナルからテスト
+> **注意**: 初回実行時は依存パッケージのインストールのため、起動に時間がかかります。
 
-ローカルエンドポイントにリクエストを送信します。
+### 3.2 別ターミナルからテスト
+
+推奨方法は `agentcore invoke --dev` コマンドです。
 
 ```bash
-curl -X POST http://localhost:8080/invoke \
+# 別のターミナルで実行
+cd agents/customer_support
+agentcore invoke --dev "パスワードをリセットする方法を教えてください"
+```
+
+curl で直接テストする場合は、エンドポイントは `/invocations` です。
+
+```bash
+curl -X POST http://localhost:8080/invocations \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "返品について教えてください",
-    "tenant_id": "tenant-a"
+    "prompt": "パスワードをリセットする方法を教えてください",
+    "sessionAttributes": {
+      "tenantId": "tenant-a",
+      "tenantName": "Acme Corp",
+      "tenantPlan": "enterprise"
+    }
   }'
 ```
 
-### 2.3 期待されるレスポンス
+### 3.3 期待されるレスポンス
 
-```json
-{
-  "response": "返品についてご案内いたします。商品到着後 30 日以内であれば返品可能です。マイページの「注文履歴」から返品申請を行ってください。...",
-  "session_id": null,
-  "tenant_id": "tenant-a"
-}
+SSE（Server-Sent Events）ストリーミング形式でレスポンスが返されます。
+
 ```
-
-### 2.4 Python からのローカルテスト
-
-`tests/test_local.py` を作成してテストすることもできます。
-
-```python
-"""ローカル環境でのエージェントテスト"""
-
-import sys
-sys.path.insert(0, "../agents")
-
-from support_agent import create_agent
-
-
-def test_greeting():
-    """挨拶ツールのテスト"""
-    agent = create_agent()
-    response = agent("田中太郎さんに挨拶してください")
-    assert "田中太郎" in str(response)
-    print(f"✅ 挨拶テスト成功: {response}")
-
-
-def test_faq():
-    """FAQ ツールのテスト"""
-    agent = create_agent()
-    response = agent("返品のやり方を教えてください")
-    assert "返品" in str(response)
-    print(f"✅ FAQ テスト成功: {response}")
-
-
-if __name__ == "__main__":
-    test_greeting()
-    test_faq()
-    print("\n🎉 全テスト成功!")
-```
-
-```bash
-cd tests
-python test_local.py
+data: "設定画面の"
+data: "「セキュリティ」"
+data: "タブから"
+data: "「パスワードリセット」を"
+data: "クリックしてください。"
+...
 ```
 
 ---
 
-## ステップ 3: Runtime へのデプロイ
+## ステップ 4: Runtime へのデプロイ
 
 ローカルテストが成功したら、AgentCore Runtime にデプロイします。
 
-### 3.1 デプロイ
+### 4.1 デプロイ
 
 ```bash
-cd agents
+cd agents/customer_support
 agentcore deploy
 ```
 
-デプロイが開始されると以下のような出力が表示されます。
+デプロイが開始されると、コードの S3 アップロードと Runtime の設定が自動で行われます。
 
 ```
-📦 Packaging agent 'support-agent'...
-🔨 Building container image...
-📤 Pushing to AgentCore Runtime...
-⏳ Deploying agent...
-✅ Agent 'support-agent' deployed successfully!
+✓ Agent 'customersupport_Agent' deployed successfully!
 
 Agent Details:
-  Name:       support-agent
   Agent ID:   agt-xxxxxxxxxxxx
   Status:     ACTIVE
-  Endpoint:   wss://runtime.agentcore.us-east-1.amazonaws.com/agents/agt-xxxxxxxxxxxx
 ```
 
-### 3.2 デプロイ状態の確認
+### 4.2 デプロイ状態の確認
 
 ```bash
-agentcore status --agent-name support-agent
+agentcore status
 ```
 
 ```
-Agent: support-agent
+Agent: customersupport_Agent
   ID:       agt-xxxxxxxxxxxx
   Status:   ACTIVE
-  Version:  1
-  Created:  2026-03-23T10:00:00Z
-  Updated:  2026-03-23T10:00:00Z
-```
-
-### 3.3 デプロイ済みエージェント一覧
-
-```bash
-agentcore list
 ```
 
 ---
 
-## ステップ 4: プログラムからの呼び出し
+## ステップ 5: エージェントの呼び出し
 
-デプロイしたエージェントを boto3 で呼び出します。
+デプロイしたエージェントを `agentcore invoke` CLI コマンドで呼び出します。
 
-### 4.1 基本的な呼び出し
-
-`scripts/invoke_agent.py` を作成します。
-
-```python
-"""
-デプロイ済みエージェントの呼び出しスクリプト
-boto3 を使用して AgentCore Runtime のエージェントを実行する
-"""
-
-import json
-import boto3
-
-
-def invoke_agent(
-    agent_id: str,
-    prompt: str,
-    session_id: str | None = None,
-    tenant_id: str = "tenant-a",
-) -> dict:
-    """
-    AgentCore Runtime 上のエージェントを呼び出す
-
-    Args:
-        agent_id: デプロイ済みエージェントの ID
-        prompt: ユーザーのメッセージ
-        session_id: セッション ID（継続会話の場合）
-        tenant_id: テナント ID
-
-    Returns:
-        dict: エージェントのレスポンス
-    """
-    client = boto3.client(
-        "bedrock-agent-core",
-        region_name="us-east-1",
-    )
-
-    # リクエストペイロードの構築
-    payload = {
-        "prompt": prompt,
-        "tenant_id": tenant_id,
-    }
-    if session_id:
-        payload["session_id"] = session_id
-
-    # エージェントの呼び出し
-    response = client.invoke_agent_runtime(
-        agentId=agent_id,
-        payload=json.dumps(payload),
-    )
-
-    # レスポンスの解析
-    result = json.loads(response["body"].read().decode("utf-8"))
-    return result
-
-
-def main():
-    # デプロイ時に取得した Agent ID を設定
-    AGENT_ID = "agt-xxxxxxxxxxxx"  # ← 自分の Agent ID に置き換えてください
-
-    # 1. 新規会話の開始
-    print("=== 新規会話 ===")
-    result = invoke_agent(
-        agent_id=AGENT_ID,
-        prompt="こんにちは。返品について教えてください。",
-        tenant_id="tenant-a",
-    )
-    print(f"レスポンス: {result['response']}")
-    session_id = result.get("session_id")
-    print(f"セッション ID: {session_id}")
-
-    # 2. 会話の継続（セッション ID を使用）
-    if session_id:
-        print("\n=== 会話の継続 ===")
-        result = invoke_agent(
-            agent_id=AGENT_ID,
-            prompt="送料はかかりますか？",
-            session_id=session_id,
-            tenant_id="tenant-a",
-        )
-        print(f"レスポンス: {result['response']}")
-
-    # 3. 別テナントでの呼び出し
-    print("\n=== テナント B での呼び出し ===")
-    result = invoke_agent(
-        agent_id=AGENT_ID,
-        prompt="技術サポートに問い合わせたいのですが",
-        tenant_id="tenant-b",
-    )
-    print(f"レスポンス: {result['response']}")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### 4.2 実行
+### 5.1 基本的な呼び出し
 
 ```bash
-python scripts/invoke_agent.py
+agentcore invoke --payload '{"prompt": "こんにちは。返品について教えてください。"}'
 ```
 
-### 4.3 期待される出力
+### 5.2 テナントコンテキスト付きの呼び出し
 
-```
-=== 新規会話 ===
-レスポンス: こんにちは！返品についてご案内いたします。商品到着後 30 日以内であれば返品可能です...
-セッション ID: sess-xxxxxxxxxxxx
-
-=== 会話の継続 ===
-レスポンス: 返品の送料についてですが、不良品の場合は弊社が負担いたします...
-
-=== テナント B での呼び出し ===
-レスポンス: 技術サポートへのお問い合わせですね。どのような技術的な問題が発生していますか？...
-```
-
----
-
-## ステップ 5: WebSocket ストリーミング
-
-WebSocket を使用してリアルタイムにレスポンスをストリーミング受信します。
-
-### 5.1 WebSocket クライアント
-
-`scripts/stream_agent.py` を作成します。
-
-```python
-"""
-WebSocket ストリーミングによるエージェント呼び出し
-リアルタイムにレスポンスを受信する
-"""
-
-import json
-import boto3
-import websocket
-
-
-def get_signed_url(agent_id: str) -> str:
-    """
-    WebSocket 接続用の署名付き URL を取得する
-    """
-    client = boto3.client(
-        "bedrock-agent-core",
-        region_name="us-east-1",
-    )
-
-    response = client.get_agent_runtime_endpoint(
-        agentId=agent_id,
-        protocol="WSS",
-    )
-
-    return response["endpoint"]
-
-
-def stream_agent(agent_id: str, prompt: str, tenant_id: str = "tenant-a"):
-    """
-    WebSocket でエージェントのレスポンスをストリーミング受信する
-
-    Args:
-        agent_id: デプロイ済みエージェントの ID
-        prompt: ユーザーのメッセージ
-        tenant_id: テナント ID
-    """
-    # 署名付き URL の取得
-    ws_url = get_signed_url(agent_id)
-
-    print(f"接続先: {ws_url}")
-    print(f"プロンプト: {prompt}")
-    print(f"テナント: {tenant_id}")
-    print("-" * 50)
-
-    # WebSocket 接続
-    ws = websocket.create_connection(ws_url)
-
-    try:
-        # リクエスト送信
-        request_payload = json.dumps({
-            "action": "invoke",
-            "payload": {
-                "prompt": prompt,
-                "tenant_id": tenant_id,
-            },
-        })
-        ws.send(request_payload)
-
-        # ストリーミングレスポンスの受信
-        print("レスポンス: ", end="", flush=True)
-
-        while True:
-            message = ws.recv()
-            data = json.loads(message)
-
-            if data.get("type") == "chunk":
-                # テキストチャンクを逐次表示
-                print(data["content"], end="", flush=True)
-
-            elif data.get("type") == "tool_use":
-                # ツール使用の通知
-                print(f"\n  [ツール使用: {data['tool_name']}]", flush=True)
-
-            elif data.get("type") == "end":
-                # ストリーミング完了
-                print("\n")
-                print(f"セッション ID: {data.get('session_id')}")
-                break
-
-            elif data.get("type") == "error":
-                print(f"\nエラー: {data['message']}")
-                break
-
-    finally:
-        ws.close()
-
-
-def main():
-    AGENT_ID = "agt-xxxxxxxxxxxx"  # ← 自分の Agent ID に置き換えてください
-
-    stream_agent(
-        agent_id=AGENT_ID,
-        prompt="注文番号 ORD-12345 の返品手続きについて教えてください",
-        tenant_id="tenant-a",
-    )
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### 5.2 websocket-client のインストール
+セッション属性にテナント情報を含めて呼び出します。
 
 ```bash
-pip install websocket-client
+agentcore invoke --payload '{
+  "prompt": "顧客 cust-001 の情報を教えてください",
+  "sessionAttributes": {
+    "tenantId": "tenant-a",
+    "tenantName": "Acme Corp",
+    "tenantPlan": "enterprise"
+  }
+}'
 ```
 
-### 5.3 実行
+### 5.3 別テナントでの呼び出し
+
+テナント B のコンテキストで呼び出すと、テナント B 固有のデータのみが返されます。
 
 ```bash
-python scripts/stream_agent.py
+agentcore invoke --payload '{
+  "prompt": "顧客 cust-101 の情報を教えてください",
+  "sessionAttributes": {
+    "tenantId": "tenant-b",
+    "tenantName": "GlobalTech",
+    "tenantPlan": "professional"
+  }
+}'
 ```
 
 ### 5.4 期待される出力
 
 ```
-接続先: wss://runtime.agentcore.us-east-1.amazonaws.com/agents/agt-xxxxxxxxxxxx
-プロンプト: 注文番号 ORD-12345 の返品手続きについて教えてください
-テナント: tenant-a
---------------------------------------------------
-レスポンス: 注文番号 ORD-12345 の返品手続きについてご案内いたします。
-  [ツール使用: get_faq]
-商品到着後 30 日以内であれば返品可能です。マイページの「注文履歴」から返品申請を行ってください。...
+=== テナント A ===
+顧客 cust-001 の情報です:
+- 名前: 田中太郎
+- メール: tanaka@acme-corp.example.com
+- プラン: enterprise
+- ステータス: active
+- 会社: Acme Corp
 
-セッション ID: sess-xxxxxxxxxxxx
+=== テナント B ===
+顧客 cust-101 の情報です:
+- 名前: John Smith
+- メール: john@globaltech.example.com
+- プラン: professional
+- ステータス: active
+- 会社: GlobalTech
 ```
 
-レスポンスがリアルタイムに表示されることを確認してください。
+テナント A のコンテキストではテナント A の顧客データのみ、テナント B のコンテキストではテナント B の顧客データのみが返されることを確認してください。
+
+### 5.5 セッションの停止
+
+不要になったセッションを停止するには、以下のコマンドを使用します。
+
+```bash
+agentcore stop-session
+```
 
 ---
 
@@ -645,26 +474,27 @@ python scripts/stream_agent.py
 
 ### チェックリスト
 
-- [ ] `agents/support_agent.py` を作成し、Strands Agent でカスタマーサポートエージェントを定義した
-- [ ] `agents/app.py` を作成し、BedrockAgentCoreApp でラップした
-- [ ] `agents/agentcore.yaml` を作成し、Runtime の設定を定義した
-- [ ] `agentcore run` でローカルテストを実行し、正常にレスポンスが返ることを確認した
+- [ ] `agents/customer_support/` のプロジェクト構造を確認した
+- [ ] `.bedrock_agentcore.yaml` の設定内容を理解した
+- [ ] `src/model/load.py` で Claude Sonnet 4.6 (`us.anthropic.claude-sonnet-4-6`) が設定されていることを確認した
+- [ ] `src/tools.py` のツール定義（`get_customer_info`, `escalate_ticket`, `get_faq`）を理解した
+- [ ] `src/main.py` の `@app.entrypoint` と `async def invoke` の構造を理解した
+- [ ] `agentcore dev` でローカルテストを実行し、正常にレスポンスが返ることを確認した
 - [ ] `agentcore deploy` で Runtime にデプロイした
 - [ ] `agentcore status` でデプロイ状態が `ACTIVE` であることを確認した
-- [ ] boto3 の `invoke_agent_runtime` でプログラムからエージェントを呼び出せた
-- [ ] セッション ID を使用して会話の継続ができることを確認した
-- [ ] WebSocket ストリーミングでリアルタイムにレスポンスを受信できた
+- [ ] `agentcore invoke` でエージェントを呼び出せた
+- [ ] テナントコンテキストによるデータ分離が機能していることを確認した
 
 ### トラブルシューティング
 
 | 問題 | 対処方法 |
 |------|---------|
-| `agentcore run` でエラーが出る | Docker が起動しているか確認。`docker info` でチェック |
+| `agentcore dev` でエラーが出る | `agents/customer_support/` ディレクトリ内で実行しているか確認。`.bedrock_agentcore.yaml` と `src/main.py` が存在するか確認 |
 | デプロイが失敗する | IAM 権限を確認。`BedrockAgentCoreFullAccess` がアタッチされているか |
-| `invoke_agent_runtime` でタイムアウト | Runtime のステータスが `ACTIVE` か確認。デプロイ直後は数分かかる場合がある |
-| WebSocket 接続が拒否される | エージェント ID が正しいか確認。リージョンが `us-east-1` か確認 |
-| モデル呼び出しエラー | Bedrock の Claude Sonnet 4.6 モデルアクセスが有効か確認 |
+| `agentcore invoke` でタイムアウト | `agentcore status` で Runtime のステータスが `ACTIVE` か確認。デプロイ直後は数分かかる場合がある |
+| モデル呼び出しエラー | Bedrock の Claude Sonnet 4.6 モデルアクセスが有効か確認（us リージョンのクロスリージョン推論プロファイル） |
+| テナントデータが返されない | payload の `sessionAttributes` に `tenantId` が正しく含まれているか確認 |
 
 ### 次のチャプター
 
-Runtime の基礎を習得しました。次は [チャプター 03: Gateway & ツール](03-gateway-tools.md) に進み、Lambda ツールの作成と Gateway を使ったツール管理を学びましょう。
+Runtime の基礎を習得しました。次は [チャプター 3: Gateway & ツール](03-gateway-tools.md) に進み、Lambda ツールの作成と Gateway を使ったツール管理を学びましょう。

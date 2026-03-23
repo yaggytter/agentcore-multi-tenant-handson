@@ -15,6 +15,7 @@ from aws_cdk import (
     aws_lambda as lambda_,
     aws_iam as iam,
     aws_logs as logs,
+    custom_resources as cr,
 )
 from constructs import Construct
 
@@ -51,12 +52,12 @@ class MemoryStack(Stack):
                 """
 import json
 import boto3
-import cfnresponse
 
 def handler(event, context):
     \"\"\"
     Custom Resource to create/delete AgentCore Memory namespaces.
     Creates both STM (session-scoped) and LTM (user-scoped) stores.
+    Returns a dict -- cr.Provider handles the CloudFormation callback.
     \"\"\"
     props = event['ResourceProperties']
     request_type = event['RequestType']
@@ -126,15 +127,21 @@ def handler(event, context):
             ltm_id = ltm_response['memoryId']
 
             physical_id = f"{stm_id}|{ltm_id}"
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                'StmId': stm_id,
-                'LtmId': ltm_id,
-            }, physical_id)
+            return {
+                'PhysicalResourceId': physical_id,
+                'Data': {
+                    'StmId': stm_id,
+                    'LtmId': ltm_id,
+                },
+            }
 
         elif request_type == 'Update':
             # Memory namespaces are immutable; recreate if needed
             physical_id = event['PhysicalResourceId']
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_id)
+            return {
+                'PhysicalResourceId': physical_id,
+                'Data': {},
+            }
 
         elif request_type == 'Delete':
             physical_id = event['PhysicalResourceId']
@@ -147,11 +154,14 @@ def handler(event, context):
                         pass
             except Exception as e:
                 print(f"Delete error: {e}")
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_id)
+            return {
+                'PhysicalResourceId': physical_id,
+                'Data': {},
+            }
 
     except Exception as e:
         print(f"Error: {str(e)}")
-        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+        raise
 """
             ),
             timeout=Duration.minutes(5),
@@ -169,13 +179,21 @@ def handler(event, context):
             )
         )
 
+        # Use cr.Provider to handle CloudFormation callbacks
+        memory_provider = cr.Provider(
+            self,
+            "MemoryProvider",
+            on_event_handler=memory_cr_lambda,
+            log_retention=logs.RetentionDays.ONE_WEEK,
+        )
+
         # -----------------------------------------------------------
         # Create Memory namespaces via Custom Resource
         # -----------------------------------------------------------
         self.memory_resource = CustomResource(
             self,
             "AgentCoreMemory",
-            service_token=memory_cr_lambda.function_arn,
+            service_token=memory_provider.service_token,
             properties={
                 "RuntimeId": runtime_id,
                 "StmName": "agentcore-mt-stm",

@@ -2,199 +2,107 @@
 -- Seed Data for AgentCore Multi-Tenant Customer Support
 -- =============================================================================
 -- Populates the database with test data for two tenants:
---   - TenantA: Acme Corp (Basic plan)
---   - TenantB: GlobalTech (Premium plan)
---
--- Each tenant gets:
---   - 5 customers
---   - 10 support tickets (various statuses)
---   - 5 knowledge articles
---   - 10 billing records
+--   - tenant-a: Acme Corp (enterprise plan)
+--   - tenant-b: GlobalTech (professional plan)
 -- =============================================================================
-
--- Use fixed UUIDs for reproducibility in testing
--- TenantA: Acme Corp
--- TenantB: GlobalTech
 
 -- -----------------------------------------------------------------------------
 -- Tenants
 -- -----------------------------------------------------------------------------
-INSERT INTO tenants (id, name, plan) VALUES
-    ('a0000000-0000-0000-0000-000000000001', 'Acme Corp', 'basic'),
-    ('b0000000-0000-0000-0000-000000000001', 'GlobalTech', 'premium');
+INSERT INTO tenants (tenant_id, name, plan, status, domain, locale) VALUES
+    ('tenant-a', 'Acme Corp', 'enterprise', 'active', 'acmecorp.example.com', 'ja'),
+    ('tenant-b', 'GlobalTech', 'professional', 'active', 'globaltech.example.com', 'en');
 
 -- -----------------------------------------------------------------------------
--- Customers - TenantA (Acme Corp)
+-- Customers - tenant-a (Acme Corp)
 -- -----------------------------------------------------------------------------
-INSERT INTO customers (id, tenant_id, name, email, plan) VALUES
-    ('ca000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'Alice Johnson', 'alice@acmecorp.example.com', 'starter'),
-    ('ca000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'Bob Smith', 'bob@acmecorp.example.com', 'business'),
-    ('ca000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'Carol Williams', 'carol@acmecorp.example.com', 'free'),
-    ('ca000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'David Brown', 'david@acmecorp.example.com', 'starter'),
-    ('ca000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'Eve Davis', 'eve@acmecorp.example.com', 'business');
+INSERT INTO customers (id, tenant_id, name, email, phone, plan, status) VALUES
+    ('ca000000-0000-0000-0000-000000000001', 'tenant-a', '田中太郎', 'tanaka@acme-corp.example.com', '090-1234-5678', 'enterprise', 'active'),
+    ('ca000000-0000-0000-0000-000000000002', 'tenant-a', '佐藤花子', 'sato@acme-corp.example.com', '090-2345-6789', 'enterprise', 'active'),
+    ('ca000000-0000-0000-0000-000000000003', 'tenant-a', '鈴木一郎', 'suzuki@acme-corp.example.com', '090-3456-7890', 'enterprise', 'active'),
+    ('ca000000-0000-0000-0000-000000000004', 'tenant-a', '高橋明美', 'takahashi@acme-corp.example.com', NULL, 'enterprise', 'active'),
+    ('ca000000-0000-0000-0000-000000000005', 'tenant-a', '渡辺健太', 'watanabe@acme-corp.example.com', NULL, 'enterprise', 'suspended');
 
 -- -----------------------------------------------------------------------------
--- Customers - TenantB (GlobalTech)
+-- Customers - tenant-b (GlobalTech)
 -- -----------------------------------------------------------------------------
-INSERT INTO customers (id, tenant_id, name, email, plan) VALUES
-    ('cb000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'Frank Miller', 'frank@globaltech.example.com', 'business'),
-    ('cb000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001', 'Grace Wilson', 'grace@globaltech.example.com', 'enterprise'),
-    ('cb000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'Hank Moore', 'hank@globaltech.example.com', 'starter'),
-    ('cb000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000001', 'Ivy Taylor', 'ivy@globaltech.example.com', 'enterprise'),
-    ('cb000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000001', 'Jack Anderson', 'jack@globaltech.example.com', 'business');
+INSERT INTO customers (id, tenant_id, name, email, phone, plan, status) VALUES
+    ('cb000000-0000-0000-0000-000000000001', 'tenant-b', 'John Smith', 'john@globaltech.example.com', '+1-555-0101', 'professional', 'active'),
+    ('cb000000-0000-0000-0000-000000000002', 'tenant-b', 'Jane Doe', 'jane@globaltech.example.com', '+1-555-0102', 'professional', 'active'),
+    ('cb000000-0000-0000-0000-000000000003', 'tenant-b', 'Bob Wilson', 'bob@globaltech.example.com', '+1-555-0103', 'professional', 'active'),
+    ('cb000000-0000-0000-0000-000000000004', 'tenant-b', 'Alice Brown', 'alice@globaltech.example.com', NULL, 'professional', 'active'),
+    ('cb000000-0000-0000-0000-000000000005', 'tenant-b', 'Charlie Davis', 'charlie@globaltech.example.com', NULL, 'professional', 'suspended');
 
 -- -----------------------------------------------------------------------------
--- Support Tickets - TenantA (Acme Corp) - 10 tickets
+-- Support Tickets - tenant-a (Acme Corp)
 -- -----------------------------------------------------------------------------
-INSERT INTO support_tickets (id, tenant_id, customer_id, subject, description, status, priority, resolution) VALUES
-    ('ta000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000001',
-     'Cannot login to dashboard', 'I am unable to log in to my dashboard. The page shows a 403 error after entering credentials.', 'open', 'high', NULL),
-    ('ta000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000002',
-     'Billing discrepancy on last invoice', 'The amount on my latest invoice does not match the quoted price.', 'in_progress', 'medium', NULL),
-    ('ta000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000003',
-     'Feature request: dark mode', 'It would be great to have a dark mode option in the application.', 'open', 'low', NULL),
-    ('ta000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000004',
-     'API rate limiting issues', 'We are hitting rate limits during peak hours. Can the quota be increased?', 'waiting_on_customer', 'high', NULL),
-    ('ta000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000005',
-     'Data export not working', 'The CSV export feature returns an empty file for reports over 10,000 rows.', 'in_progress', 'critical', NULL),
-    ('ta000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000001',
-     'Password reset email not received', 'I requested a password reset 30 minutes ago but have not received the email.', 'resolved', 'medium',
-     'The email was caught by the spam filter. Whitelisting instructions were provided.'),
-    ('ta000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000002',
-     'Integration with Slack failing', 'The Slack integration stopped working after updating to v2.3.', 'open', 'high', NULL),
-    ('ta000000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000003',
-     'Account upgrade request', 'I would like to upgrade my free account to a starter plan.', 'closed', 'low',
-     'Account upgraded successfully to starter plan.'),
-    ('ta000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000004',
-     'Slow page load times', 'Dashboard pages are taking over 10 seconds to load since last week.', 'in_progress', 'high', NULL),
-    ('ta000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000005',
-     'Webhook delivery failures', 'Webhooks to our endpoint are failing with timeout errors.', 'resolved', 'medium',
-     'Increased webhook timeout to 30 seconds and added retry logic.');
+INSERT INTO support_tickets (tenant_id, customer_id, ticket_id, subject, description, status, priority, category, resolution) VALUES
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000001', 'TKT-A001', 'ダッシュボードにログインできません', '認証情報を入力後、403エラーが表示されます。', 'open', 'high', 'account', NULL),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000002', 'TKT-A002', '請求書の金額が不一致', '先月の請求書の金額が見積額と異なります。', 'in_progress', 'medium', 'billing', NULL),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000003', 'TKT-A003', 'ダークモード機能のリクエスト', 'アプリケーションにダークモードオプションが欲しいです。', 'open', 'low', 'general', NULL),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000004', 'TKT-A004', 'APIレート制限の問題', 'ピーク時にレート制限に達します。クォータの増加は可能ですか？', 'waiting_on_customer', 'high', 'technical', NULL),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000005', 'TKT-A005', 'データエクスポートが動作しない', 'CSVエクスポート機能で10,000行以上のレポートが空ファイルになります。', 'in_progress', 'critical', 'technical', NULL),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000001', 'TKT-A006', 'パスワードリセットメールが届かない', 'パスワードリセットを要求しましたがメールが届きません。', 'resolved', 'medium', 'account', 'スパムフィルターに捕捉されていました。ホワイトリスト登録の手順をご案内しました。'),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000002', 'TKT-A007', 'Slack連携の不具合', 'v2.3にアップデート後、Slack連携が動作しなくなりました。', 'open', 'high', 'technical', NULL),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000003', 'TKT-A008', 'アカウントアップグレードのリクエスト', 'Freeアカウントからstarterプランへのアップグレードを希望します。', 'closed', 'low', 'account', 'starterプランへのアップグレードが完了しました。'),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000004', 'TKT-A009', 'ページの読み込みが遅い', '先週からダッシュボードの読み込みに10秒以上かかります。', 'in_progress', 'high', 'technical', NULL),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000005', 'TKT-A010', 'Webhook配信の失敗', 'エンドポイントへのWebhookがタイムアウトエラーで失敗しています。', 'resolved', 'medium', 'technical', 'Webhookタイムアウトを30秒に増加し、リトライロジックを追加しました。');
 
 -- -----------------------------------------------------------------------------
--- Support Tickets - TenantB (GlobalTech) - 10 tickets
+-- Support Tickets - tenant-b (GlobalTech)
 -- -----------------------------------------------------------------------------
-INSERT INTO support_tickets (id, tenant_id, customer_id, subject, description, status, priority, resolution) VALUES
-    ('tb000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000001',
-     'SSO configuration help needed', 'We need assistance configuring SAML SSO with our Okta instance.', 'open', 'high', NULL),
-    ('tb000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000002',
-     'Custom report template', 'Can we create custom report templates for our quarterly review?', 'in_progress', 'medium', NULL),
-    ('tb000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000003',
-     'Mobile app crash on Android 14', 'The mobile app crashes immediately on launch on Pixel 8 running Android 14.', 'open', 'critical', NULL),
-    ('tb000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000004',
-     'Bulk user import failing', 'Importing 5000+ users via CSV fails with a generic error message.', 'in_progress', 'high', NULL),
-    ('tb000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000005',
-     'Request for API documentation update', 'The v3 API documentation is missing the new pagination parameters.', 'waiting_on_customer', 'low', NULL),
-    ('tb000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000001',
-     'Data retention policy question', 'What is the data retention period for audit logs under the enterprise plan?', 'resolved', 'medium',
-     'Enterprise plan retains audit logs for 7 years. Documentation link was shared.'),
-    ('tb000000-0000-0000-0000-000000000007', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000002',
-     'Performance degradation in EU region', 'Latency has increased by 3x for our EU-based users since the last deployment.', 'open', 'critical', NULL),
-    ('tb000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000003',
-     'Two-factor authentication setup', 'Need help enabling 2FA for all team members.', 'closed', 'medium',
-     '2FA enabled for all team members using TOTP. Recovery codes were generated.'),
-    ('tb000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000004',
-     'Custom domain SSL certificate', 'Our custom domain SSL certificate is expiring next week and needs renewal.', 'in_progress', 'high', NULL),
-    ('tb000000-0000-0000-0000-000000000010', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000005',
-     'Audit log export request', 'We need to export all audit logs from the past 6 months for compliance review.', 'resolved', 'medium',
-     'Audit log export completed and delivered via secure download link.');
+INSERT INTO support_tickets (tenant_id, customer_id, ticket_id, subject, description, status, priority, category, resolution) VALUES
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000001', 'TKT-B001', 'SSO configuration help', 'Need help configuring SAML SSO with Okta.', 'open', 'high', 'technical', NULL),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000002', 'TKT-B002', 'Custom report template', 'Can we create custom report templates for quarterly review?', 'in_progress', 'medium', 'general', NULL),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000003', 'TKT-B003', 'Mobile app crash on Android 14', 'App crashes immediately on Pixel 8 running Android 14.', 'open', 'critical', 'technical', NULL),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000004', 'TKT-B004', 'Bulk user import failing', 'Importing 5000+ users via CSV fails with generic error.', 'in_progress', 'high', 'technical', NULL),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000005', 'TKT-B005', 'API docs update request', 'v3 API docs missing new pagination parameters.', 'waiting_on_customer', 'low', 'general', NULL),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000001', 'TKT-B006', 'Data retention policy', 'What is the data retention period for audit logs?', 'resolved', 'medium', 'general', 'Enterprise plan retains logs for 7 years.'),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000002', 'TKT-B007', 'EU region performance', 'Latency increased 3x for EU users since last deployment.', 'open', 'critical', 'technical', NULL),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000003', 'TKT-B008', '2FA setup help', 'Need help enabling 2FA for all team members.', 'closed', 'medium', 'account', '2FA enabled for all members using TOTP.'),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000004', 'TKT-B009', 'SSL certificate renewal', 'Custom domain SSL certificate expiring next week.', 'in_progress', 'high', 'technical', NULL),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000005', 'TKT-B010', 'Audit log export', 'Need to export 6 months of audit logs for compliance.', 'resolved', 'medium', 'general', 'Export completed and delivered via secure download.');
 
 -- -----------------------------------------------------------------------------
--- Knowledge Articles - TenantA (Acme Corp)
+-- Knowledge Articles - tenant-a (Acme Corp)
 -- -----------------------------------------------------------------------------
-INSERT INTO knowledge_articles (id, tenant_id, title, content, category, tags) VALUES
-    ('ka000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001',
-     'Getting Started with Acme Dashboard',
-     'Welcome to Acme Corp! This guide walks you through your first login, setting up your profile, and navigating the dashboard. Start by visiting https://dashboard.acmecorp.example.com and entering your credentials.',
-     'onboarding', ARRAY['getting-started', 'dashboard', 'setup']),
-    ('ka000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001',
-     'How to Reset Your Password',
-     'If you have forgotten your password, click the "Forgot Password" link on the login page. Enter your registered email and follow the instructions in the reset email. If you do not receive the email within 5 minutes, check your spam folder.',
-     'account', ARRAY['password', 'reset', 'login']),
-    ('ka000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001',
-     'API Rate Limits and Quotas',
-     'Acme Corp APIs enforce rate limits to ensure fair usage. Free plan: 100 req/min, Starter: 500 req/min, Business: 2000 req/min. If you exceed your limit, you will receive a 429 Too Many Requests response.',
-     'api', ARRAY['rate-limit', 'api', 'quota']),
-    ('ka000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001',
-     'Setting Up Slack Integration',
-     'To connect Acme with Slack, navigate to Settings > Integrations > Slack. Click "Connect" and authorize the application in your Slack workspace. Notifications will be sent to the selected channel.',
-     'integrations', ARRAY['slack', 'integration', 'notifications']),
-    ('ka000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001',
-     'Exporting Data and Reports',
-     'You can export your data in CSV or JSON format from the Reports section. Select the date range and click "Export". For large datasets (over 10,000 rows), the export runs asynchronously and you will receive a download link via email.',
-     'reports', ARRAY['export', 'csv', 'reports', 'data']);
+INSERT INTO knowledge_articles (tenant_id, article_id, title, content, category, tags, author) VALUES
+    ('tenant-a', 'KB-A001', 'パスワードをリセットするにはどうすればよいですか？', '設定画面の「セキュリティ」タブから「パスワードリセット」をクリックしてください。登録済みメールアドレスにリセットリンクが送信されます。', 'account', ARRAY['password', 'reset', 'login'], '田中太郎'),
+    ('tenant-a', 'KB-A002', '請求書はどこで確認できますか？', '管理画面の「請求・支払い」セクションから過去の請求書をダウンロードできます。', 'billing', ARRAY['invoice', 'billing', 'payment'], '佐藤花子'),
+    ('tenant-a', 'KB-A003', 'APIレート制限について', 'Enterpriseプランでは1分あたり10,000リクエストまで利用可能です。制限に達した場合は429エラーが返されます。', 'technical', ARRAY['api', 'rate-limit', 'quota'], '鈴木一郎'),
+    ('tenant-a', 'KB-A004', 'Slack連携の設定方法', '設定 > インテグレーション > Slack から連携を設定できます。「接続」をクリックしてSlackワークスペースで認証してください。', 'integrations', ARRAY['slack', 'integration'], '田中太郎'),
+    ('tenant-a', 'KB-A005', 'データエクスポート機能の使い方', 'レポートセクションからCSVまたはJSON形式でデータをエクスポートできます。10,000行以上の場合は非同期で処理されます。', 'reports', ARRAY['export', 'csv', 'reports'], '佐藤花子');
 
 -- -----------------------------------------------------------------------------
--- Knowledge Articles - TenantB (GlobalTech)
+-- Knowledge Articles - tenant-b (GlobalTech)
 -- -----------------------------------------------------------------------------
-INSERT INTO knowledge_articles (id, tenant_id, title, content, category, tags) VALUES
-    ('kb000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001',
-     'GlobalTech Platform Overview',
-     'GlobalTech provides enterprise-grade SaaS solutions for global teams. This article covers the platform architecture, available modules, and how to get started with your enterprise deployment.',
-     'onboarding', ARRAY['overview', 'platform', 'enterprise']),
-    ('kb000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001',
-     'Configuring SAML SSO',
-     'GlobalTech supports SAML 2.0 SSO with major identity providers (Okta, Azure AD, OneLogin). Navigate to Admin > Security > SSO to configure. You will need the IdP metadata URL and entity ID.',
-     'security', ARRAY['sso', 'saml', 'okta', 'authentication']),
-    ('kb000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001',
-     'Bulk User Import Guide',
-     'To import users in bulk, prepare a CSV file with columns: name, email, role, department. Navigate to Admin > Users > Import. The system supports up to 10,000 users per import batch.',
-     'admin', ARRAY['import', 'users', 'bulk', 'csv']),
-    ('kb000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000001',
-     'Custom Domain and SSL Setup',
-     'Enterprise plan users can configure a custom domain. Go to Settings > Domain. Add your CNAME record pointing to platform.globaltech.example.com. SSL certificates are automatically provisioned via Let''s Encrypt.',
-     'infrastructure', ARRAY['custom-domain', 'ssl', 'dns', 'enterprise']),
-    ('kb000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000001',
-     'Audit Logging and Compliance',
-     'GlobalTech maintains comprehensive audit logs for all user actions. Enterprise plan retains logs for 7 years. Logs can be exported via the Admin > Compliance > Audit Logs section or through the Audit API endpoint.',
-     'compliance', ARRAY['audit', 'logging', 'compliance', 'enterprise']);
+INSERT INTO knowledge_articles (tenant_id, article_id, title, content, category, tags, author) VALUES
+    ('tenant-b', 'KB-B001', 'Getting Started with GlobalTech', 'Welcome to GlobalTech! This guide walks through your first login, profile setup, and dashboard navigation.', 'onboarding', ARRAY['getting-started', 'setup'], 'John Smith'),
+    ('tenant-b', 'KB-B002', 'Configuring SAML SSO', 'GlobalTech supports SAML 2.0 SSO with Okta, Azure AD, and OneLogin. Navigate to Admin > Security > SSO to configure.', 'security', ARRAY['sso', 'saml', 'authentication'], 'Jane Doe'),
+    ('tenant-b', 'KB-B003', 'Bulk User Import Guide', 'Prepare a CSV with columns: name, email, role, department. Go to Admin > Users > Import. Max 10,000 users per batch.', 'admin', ARRAY['import', 'users', 'csv'], 'Bob Wilson'),
+    ('tenant-b', 'KB-B004', 'Custom Domain and SSL Setup', 'Enterprise users can configure custom domains. Add CNAME record pointing to platform.globaltech.example.com. SSL auto-provisioned.', 'infrastructure', ARRAY['domain', 'ssl', 'dns'], 'Alice Brown'),
+    ('tenant-b', 'KB-B005', 'Audit Logging and Compliance', 'Comprehensive audit logs for all actions. Enterprise retains logs for 7 years. Export via Admin > Compliance > Audit Logs.', 'compliance', ARRAY['audit', 'logging', 'compliance'], 'Charlie Davis');
 
 -- -----------------------------------------------------------------------------
--- Billing Records - TenantA (Acme Corp) - 10 records
+-- Billing Records - tenant-a (Acme Corp)
 -- -----------------------------------------------------------------------------
-INSERT INTO billing_records (id, tenant_id, customer_id, amount, type, status, description) VALUES
-    ('ra000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000001',
-     29.99, 'charge', 'completed', 'Monthly subscription - Starter plan'),
-    ('ra000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000002',
-     99.99, 'charge', 'completed', 'Monthly subscription - Business plan'),
-    ('ra000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000003',
-     0.00, 'charge', 'completed', 'Monthly subscription - Free plan'),
-    ('ra000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000004',
-     29.99, 'charge', 'completed', 'Monthly subscription - Starter plan'),
-    ('ra000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000005',
-     99.99, 'charge', 'completed', 'Monthly subscription - Business plan'),
-    ('ra000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000001',
-     15.00, 'refund', 'completed', 'Partial refund for service outage'),
-    ('ra000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000002',
-     50.00, 'credit', 'completed', 'Loyalty credit applied'),
-    ('ra000000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000004',
-     10.00, 'adjustment', 'completed', 'Proration adjustment for mid-cycle upgrade'),
-    ('ra000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000005',
-     99.99, 'charge', 'pending', 'Monthly subscription renewal - Business plan'),
-    ('ra000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000001', 'ca000000-0000-0000-0000-000000000001',
-     29.99, 'charge', 'failed', 'Monthly subscription renewal - payment method declined');
+INSERT INTO billing_records (tenant_id, customer_id, amount, type, status, description) VALUES
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000001', 299.99, 'charge', 'completed', 'Monthly subscription - Enterprise plan'),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000002', 299.99, 'charge', 'completed', 'Monthly subscription - Enterprise plan'),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000003', 299.99, 'charge', 'completed', 'Monthly subscription - Enterprise plan'),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000001', 50.00, 'refund', 'completed', 'サービス障害に対する一部返金'),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000002', 100.00, 'credit', 'completed', 'ロイヤリティクレジット適用'),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000004', 299.99, 'charge', 'pending', 'Monthly subscription renewal'),
+    ('tenant-a', 'ca000000-0000-0000-0000-000000000005', 299.99, 'charge', 'failed', 'Payment method declined');
 
 -- -----------------------------------------------------------------------------
--- Billing Records - TenantB (GlobalTech) - 10 records
+-- Billing Records - tenant-b (GlobalTech)
 -- -----------------------------------------------------------------------------
-INSERT INTO billing_records (id, tenant_id, customer_id, amount, type, status, description) VALUES
-    ('rb000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000001',
-     199.99, 'charge', 'completed', 'Monthly subscription - Business plan'),
-    ('rb000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000002',
-     499.99, 'charge', 'completed', 'Monthly subscription - Enterprise plan'),
-    ('rb000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000003',
-     49.99, 'charge', 'completed', 'Monthly subscription - Starter plan'),
-    ('rb000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000004',
-     499.99, 'charge', 'completed', 'Monthly subscription - Enterprise plan'),
-    ('rb000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000005',
-     199.99, 'charge', 'completed', 'Monthly subscription - Business plan'),
-    ('rb000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000002',
-     250.00, 'refund', 'completed', 'Refund for duplicate charge'),
-    ('rb000000-0000-0000-0000-000000000007', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000004',
-     500.00, 'credit', 'completed', 'Annual loyalty credit - Enterprise plan'),
-    ('rb000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000003',
-     25.00, 'adjustment', 'completed', 'Proration for mid-cycle plan change'),
-    ('rb000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000001',
-     199.99, 'charge', 'pending', 'Monthly subscription renewal - Business plan'),
-    ('rb000000-0000-0000-0000-000000000010', 'b0000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000005',
-     199.99, 'charge', 'failed', 'Monthly subscription renewal - payment method expired');
+INSERT INTO billing_records (tenant_id, customer_id, amount, type, status, description) VALUES
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000001', 199.99, 'charge', 'completed', 'Monthly subscription - Professional plan'),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000002', 199.99, 'charge', 'completed', 'Monthly subscription - Professional plan'),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000003', 199.99, 'charge', 'completed', 'Monthly subscription - Professional plan'),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000002', 100.00, 'refund', 'completed', 'Refund for duplicate charge'),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000004', 200.00, 'credit', 'completed', 'Annual loyalty credit'),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000001', 199.99, 'charge', 'pending', 'Monthly subscription renewal'),
+    ('tenant-b', 'cb000000-0000-0000-0000-000000000005', 199.99, 'charge', 'failed', 'Payment method expired');

@@ -35,7 +35,8 @@ class GatewayStack(Stack):
         lambda_security_group: ec2.ISecurityGroup,
         db_cluster_arn: str,
         db_secret_arn: str,
-        user_pool_arn: str,
+        user_pool_id: str,
+        user_pool_client_id: str,
         service_role_arn: str,
         **kwargs,
     ) -> None:
@@ -109,47 +110,53 @@ def handler(event, context):
     action = event.get('action', 'list_tickets')
 
     # Set tenant context for RLS
-    execute_sql(f"SET app.current_tenant_id = '{tenant_id}'")
+    execute_sql(
+        "SET app.current_tenant_id = :tid",
+        [{'name': 'tid', 'value': {'stringValue': tenant_id}}]
+    )
 
     if action == 'list_tickets':
         status_filter = event.get('status', None)
-        sql = "SELECT * FROM support_tickets"
         if status_filter:
-            sql += f" WHERE status = '{status_filter}'"
-        sql += " ORDER BY created_at DESC LIMIT 50"
-        result = execute_sql(sql)
+            result = execute_sql(
+                "SELECT * FROM support_tickets WHERE status = :status ORDER BY created_at DESC LIMIT 50",
+                [{'name': 'status', 'value': {'stringValue': status_filter}}]
+            )
+        else:
+            result = execute_sql("SELECT * FROM support_tickets ORDER BY created_at DESC LIMIT 50")
         return {'statusCode': 200, 'body': json.dumps({'tickets': str(result.get('records', []))})}
 
     elif action == 'get_ticket':
-        ticket_id = event.get('ticket_id')
+        ticket_id = event.get('ticket_id', '')
         result = execute_sql(
             "SELECT * FROM support_tickets WHERE ticket_id = :id",
-            [{'name': 'id', 'value': {'longValue': int(ticket_id)}}]
+            [{'name': 'id', 'value': {'stringValue': ticket_id}}]
         )
         return {'statusCode': 200, 'body': json.dumps({'ticket': str(result.get('records', []))})}
 
     elif action == 'create_ticket':
         result = execute_sql(
-            \"\"\"INSERT INTO support_tickets (tenant_id, title, description, priority, created_by)
-               VALUES (:tenant, :title, :desc, :priority, :user) RETURNING ticket_id\"\"\",
+            \"\"\"INSERT INTO support_tickets (tenant_id, ticket_id, subject, description, priority, category)
+               VALUES (:tenant, :ticket_id, :subject, :desc, :priority, :category) RETURNING ticket_id\"\"\",
             [
                 {'name': 'tenant', 'value': {'stringValue': tenant_id}},
-                {'name': 'title', 'value': {'stringValue': event.get('title', '')}},
+                {'name': 'ticket_id', 'value': {'stringValue': 'TKT-' + context.aws_request_id[:8].upper()}},
+                {'name': 'subject', 'value': {'stringValue': event.get('subject', '')}},
                 {'name': 'desc', 'value': {'stringValue': event.get('description', '')}},
                 {'name': 'priority', 'value': {'stringValue': event.get('priority', 'medium')}},
-                {'name': 'user', 'value': {'stringValue': event.get('user_id', 'unknown')}},
+                {'name': 'category', 'value': {'stringValue': event.get('category', 'general')}},
             ]
         )
         return {'statusCode': 201, 'body': json.dumps({'message': 'Ticket created', 'result': str(result)})}
 
     elif action == 'update_ticket':
-        ticket_id = event.get('ticket_id')
+        ticket_id = event.get('ticket_id', '')
         status = event.get('status', 'open')
         execute_sql(
             "UPDATE support_tickets SET status = :status, updated_at = CURRENT_TIMESTAMP WHERE ticket_id = :id",
             [
                 {'name': 'status', 'value': {'stringValue': status}},
-                {'name': 'id', 'value': {'longValue': int(ticket_id)}},
+                {'name': 'id', 'value': {'stringValue': ticket_id}},
             ]
         )
         return {'statusCode': 200, 'body': json.dumps({'message': f'Ticket {ticket_id} updated to {status}'})}
@@ -185,6 +192,17 @@ CLUSTER_ARN = os.environ['CLUSTER_ARN']
 SECRET_ARN = os.environ['SECRET_ARN']
 DATABASE = os.environ['DATABASE_NAME']
 
+def execute_sql(sql, params=None):
+    kwargs = {
+        'resourceArn': CLUSTER_ARN,
+        'secretArn': SECRET_ARN,
+        'database': DATABASE,
+        'sql': sql,
+    }
+    if params:
+        kwargs['parameters'] = params
+    return rds_client.execute_statement(**kwargs)
+
 def handler(event, context):
     \"\"\"
     Knowledge search tool for AgentCore Gateway.
@@ -195,10 +213,9 @@ def handler(event, context):
     category = event.get('category', None)
 
     # Set tenant context for RLS
-    rds_client.execute_statement(
-        resourceArn=CLUSTER_ARN, secretArn=SECRET_ARN,
-        database=DATABASE,
-        sql=f"SET app.current_tenant_id = '{tenant_id}'"
+    execute_sql(
+        "SET app.current_tenant_id = :tid",
+        [{'name': 'tid', 'value': {'stringValue': tenant_id}}]
     )
 
     sql = \"\"\"
@@ -214,10 +231,7 @@ def handler(event, context):
 
     sql += " ORDER BY created_at DESC LIMIT 10"
 
-    result = rds_client.execute_statement(
-        resourceArn=CLUSTER_ARN, secretArn=SECRET_ARN,
-        database=DATABASE, sql=sql, parameters=params,
-    )
+    result = execute_sql(sql, params)
 
     return {
         'statusCode': 200,
@@ -256,6 +270,17 @@ CLUSTER_ARN = os.environ['CLUSTER_ARN']
 SECRET_ARN = os.environ['SECRET_ARN']
 DATABASE = os.environ['DATABASE_NAME']
 
+def execute_sql(sql, params=None):
+    kwargs = {
+        'resourceArn': CLUSTER_ARN,
+        'secretArn': SECRET_ARN,
+        'database': DATABASE,
+        'sql': sql,
+    }
+    if params:
+        kwargs['parameters'] = params
+    return rds_client.execute_statement(**kwargs)
+
 def handler(event, context):
     \"\"\"
     Billing inquiry tool for AgentCore Gateway.
@@ -265,26 +290,17 @@ def handler(event, context):
     action = event.get('action', 'list_invoices')
 
     # Set tenant context for RLS
-    rds_client.execute_statement(
-        resourceArn=CLUSTER_ARN, secretArn=SECRET_ARN,
-        database=DATABASE,
-        sql=f"SET app.current_tenant_id = '{tenant_id}'"
+    execute_sql(
+        "SET app.current_tenant_id = :tid",
+        [{'name': 'tid', 'value': {'stringValue': tenant_id}}]
     )
 
     if action == 'list_invoices':
-        result = rds_client.execute_statement(
-            resourceArn=CLUSTER_ARN, secretArn=SECRET_ARN,
-            database=DATABASE,
-            sql="SELECT * FROM billing_records ORDER BY created_at DESC LIMIT 20",
-        )
+        result = execute_sql("SELECT * FROM billing_records ORDER BY created_at DESC LIMIT 20")
         return {'statusCode': 200, 'body': json.dumps({'invoices': str(result.get('records', []))})}
 
     elif action == 'get_balance':
-        result = rds_client.execute_statement(
-            resourceArn=CLUSTER_ARN, secretArn=SECRET_ARN,
-            database=DATABASE,
-            sql="SELECT SUM(amount) as total FROM billing_records WHERE status = 'pending'",
-        )
+        result = execute_sql("SELECT SUM(amount) as total FROM billing_records WHERE status = 'pending'")
         return {'statusCode': 200, 'body': json.dumps({'balance': str(result.get('records', []))})}
 
     return {'statusCode': 400, 'body': json.dumps({'error': f'Unknown action: {action}'})}
@@ -363,7 +379,7 @@ def handler(event, context):
         )
 
         # -----------------------------------------------------------
-        # AgentCore Gateway Custom Resource
+        # AgentCore Gateway Custom Resource Lambda
         # Creates the Gateway via the Bedrock AgentCore API since
         # no L2 CDK construct exists yet.
         # -----------------------------------------------------------
@@ -377,13 +393,13 @@ def handler(event, context):
                 """
 import json
 import boto3
-import cfnresponse
 import os
 
 def handler(event, context):
     \"\"\"
     Custom Resource to create/update/delete an AgentCore Gateway.
     Uses the bedrock-agentcore API (boto3).
+    Returns a dict -- cr.Provider handles the CloudFormation callback.
     \"\"\"
     props = event['ResourceProperties']
     request_type = event['RequestType']
@@ -412,9 +428,10 @@ def handler(event, context):
                 },
             )
             gateway_id = response['gatewayId']
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                'GatewayId': gateway_id,
-            }, gateway_id)
+            return {
+                'PhysicalResourceId': gateway_id,
+                'Data': {'GatewayId': gateway_id},
+            }
 
         elif request_type == 'Update':
             gateway_id = event['PhysicalResourceId']
@@ -423,9 +440,10 @@ def handler(event, context):
                 name=props['GatewayName'],
                 description=props.get('Description', ''),
             )
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                'GatewayId': gateway_id,
-            }, gateway_id)
+            return {
+                'PhysicalResourceId': gateway_id,
+                'Data': {'GatewayId': gateway_id},
+            }
 
         elif request_type == 'Delete':
             gateway_id = event['PhysicalResourceId']
@@ -440,11 +458,14 @@ def handler(event, context):
                 client.delete_gateway(gatewayId=gateway_id)
             except client.exceptions.ResourceNotFoundException:
                 pass
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, gateway_id)
+            return {
+                'PhysicalResourceId': gateway_id,
+                'Data': {},
+            }
 
     except Exception as e:
         print(f"Error: {str(e)}")
-        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+        raise
 """
             ),
             timeout=Duration.minutes(5),
@@ -462,18 +483,32 @@ def handler(event, context):
             )
         )
 
+        # Use cr.Provider to handle CloudFormation callbacks
+        gateway_provider = cr.Provider(
+            self,
+            "GatewayProvider",
+            on_event_handler=gateway_cr_lambda,
+            log_retention=logs.RetentionDays.ONE_WEEK,
+        )
+
+        # Cognito discovery URL built from the actual user_pool_id parameter
+        discovery_url = (
+            f"https://cognito-idp.{self.region}.amazonaws.com/"
+            f"{user_pool_id}/.well-known/openid-configuration"
+        )
+
         # Create the Gateway via Custom Resource
         self.gateway_resource = CustomResource(
             self,
             "AgentCoreGateway",
-            service_token=gateway_cr_lambda.function_arn,
+            service_token=gateway_provider.service_token,
             properties={
                 "GatewayName": "agentcore-multi-tenant-gateway",
                 "Description": "Multi-tenant SaaS customer support gateway",
                 "RoleArn": service_role_arn,
-                "DiscoveryUrl": f"https://cognito-idp.{self.region}.amazonaws.com/{self.node.try_get_context('user_pool_id') or 'PLACEHOLDER'}/.well-known/openid-configuration",
-                "AllowedAudience": self.node.try_get_context("user_pool_client_id") or "PLACEHOLDER",
-                "AllowedClient": self.node.try_get_context("user_pool_client_id") or "PLACEHOLDER",
+                "DiscoveryUrl": discovery_url,
+                "AllowedAudience": user_pool_client_id,
+                "AllowedClient": user_pool_client_id,
                 "Instructions": "You are a multi-tenant customer support agent. Always use the tenant_id from the request context to scope all operations.",
             },
         )
@@ -494,11 +529,11 @@ def handler(event, context):
                 """
 import json
 import boto3
-import cfnresponse
 
 def handler(event, context):
     \"\"\"
     Custom Resource to create/delete Gateway Targets (tool Lambda functions).
+    Returns a dict -- cr.Provider handles the CloudFormation callback.
     \"\"\"
     props = event['ResourceProperties']
     request_type = event['RequestType']
@@ -520,9 +555,10 @@ def handler(event, context):
                 },
             )
             target_id = response['targetId']
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                'TargetId': target_id,
-            }, target_id)
+            return {
+                'PhysicalResourceId': target_id,
+                'Data': {'TargetId': target_id},
+            }
 
         elif request_type == 'Delete':
             target_id = event['PhysicalResourceId']
@@ -533,11 +569,14 @@ def handler(event, context):
                 )
             except Exception:
                 pass
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, target_id)
+            return {
+                'PhysicalResourceId': target_id,
+                'Data': {},
+            }
 
     except Exception as e:
         print(f"Error: {str(e)}")
-        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+        raise
 """
             ),
             timeout=Duration.minutes(5),
@@ -551,11 +590,19 @@ def handler(event, context):
             )
         )
 
+        # Use cr.Provider for target custom resources
+        target_provider = cr.Provider(
+            self,
+            "TargetProvider",
+            on_event_handler=target_cr_lambda,
+            log_retention=logs.RetentionDays.ONE_WEEK,
+        )
+
         # Register tool targets
         ticket_target = CustomResource(
             self,
             "TicketManagementTarget",
-            service_token=target_cr_lambda.function_arn,
+            service_token=target_provider.service_token,
             properties={
                 "GatewayId": self.gateway_id,
                 "TargetName": "ticket-management",
@@ -568,7 +615,7 @@ def handler(event, context):
         knowledge_target = CustomResource(
             self,
             "KnowledgeSearchTarget",
-            service_token=target_cr_lambda.function_arn,
+            service_token=target_provider.service_token,
             properties={
                 "GatewayId": self.gateway_id,
                 "TargetName": "knowledge-search",
@@ -581,7 +628,7 @@ def handler(event, context):
         billing_target = CustomResource(
             self,
             "BillingInquiryTarget",
-            service_token=target_cr_lambda.function_arn,
+            service_token=target_provider.service_token,
             properties={
                 "GatewayId": self.gateway_id,
                 "TargetName": "billing-inquiry",

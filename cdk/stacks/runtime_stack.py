@@ -15,6 +15,7 @@ from aws_cdk import (
     aws_lambda as lambda_,
     aws_iam as iam,
     aws_logs as logs,
+    custom_resources as cr,
 )
 from constructs import Construct
 
@@ -54,13 +55,13 @@ class RuntimeStack(Stack):
                 """
 import json
 import boto3
-import cfnresponse
 
 def handler(event, context):
     \"\"\"
     Custom Resource to create/update/delete an AgentCore Runtime.
     The Runtime configures the agent container image, scaling,
     environment variables, and OAuth settings.
+    Returns a dict -- cr.Provider handles the CloudFormation callback.
     \"\"\"
     props = event['ResourceProperties']
     request_type = event['RequestType']
@@ -105,10 +106,13 @@ def handler(event, context):
             )
             runtime_id = response['agentRuntimeId']
             runtime_endpoint = response.get('agentRuntimeEndpoint', '')
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                'RuntimeId': runtime_id,
-                'RuntimeEndpoint': runtime_endpoint,
-            }, runtime_id)
+            return {
+                'PhysicalResourceId': runtime_id,
+                'Data': {
+                    'RuntimeId': runtime_id,
+                    'RuntimeEndpoint': runtime_endpoint,
+                },
+            }
 
         elif request_type == 'Update':
             runtime_id = event['PhysicalResourceId']
@@ -131,9 +135,10 @@ def handler(event, context):
                     'AWS_REGION_NAME': props['RegionName'],
                 },
             )
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                'RuntimeId': runtime_id,
-            }, runtime_id)
+            return {
+                'PhysicalResourceId': runtime_id,
+                'Data': {'RuntimeId': runtime_id},
+            }
 
         elif request_type == 'Delete':
             runtime_id = event['PhysicalResourceId']
@@ -143,11 +148,14 @@ def handler(event, context):
                 pass
             except Exception as e:
                 print(f"Delete error (may already be deleted): {e}")
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, runtime_id)
+            return {
+                'PhysicalResourceId': runtime_id,
+                'Data': {},
+            }
 
     except Exception as e:
         print(f"Error: {str(e)}")
-        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+        raise
 """
             ),
             timeout=Duration.minutes(10),
@@ -176,13 +184,21 @@ def handler(event, context):
         image_tag = self.node.try_get_context("image_tag") or "latest"
         container_uri = f"{ecr_repository_uri}:{image_tag}"
 
+        # Use cr.Provider to handle CloudFormation callbacks
+        runtime_provider = cr.Provider(
+            self,
+            "RuntimeProvider",
+            on_event_handler=runtime_cr_lambda,
+            log_retention=logs.RetentionDays.ONE_WEEK,
+        )
+
         # -----------------------------------------------------------
         # Create the AgentCore Runtime
         # -----------------------------------------------------------
         self.runtime_resource = CustomResource(
             self,
             "AgentCoreRuntime",
-            service_token=runtime_cr_lambda.function_arn,
+            service_token=runtime_provider.service_token,
             properties={
                 "RuntimeName": "agentcore-multi-tenant-runtime",
                 "Description": "Multi-tenant customer support agent runtime",

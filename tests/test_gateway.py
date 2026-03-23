@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Tenant IDs matching seed data
-TENANT_A_ID = "a0000000-0000-0000-0000-000000000001"
-TENANT_B_ID = "b0000000-0000-0000-0000-000000000001"
+TENANT_A_ID = "tenant-a"
+TENANT_B_ID = "tenant-b"
 
 
 # =============================================================================

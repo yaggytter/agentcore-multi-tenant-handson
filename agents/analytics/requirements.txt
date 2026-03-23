@@ -1,8 +1,0 @@
-strands-agents>=0.1.0
-strands-agents-tools>=0.1.0
-strands-agents-builder-bedrock-agentcore>=0.1.0
-bedrock-agentcore-runtime>=0.1.0
-boto3>=1.35.0
-pandas>=2.0.0
-matplotlib>=3.8.0
-seaborn>=0.13.0

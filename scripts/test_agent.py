@@ -24,8 +24,8 @@ from botocore.exceptions import ClientError
 # =============================================================================
 
 # Test tenant IDs (must match seed data)
-TENANT_A_ID = "a0000000-0000-0000-0000-000000000001"  # Acme Corp (Basic)
-TENANT_B_ID = "b0000000-0000-0000-0000-000000000001"  # GlobalTech (Premium)
+TENANT_A_ID = "tenant-a"  # Acme Corp (Basic)
+TENANT_B_ID = "tenant-b"  # GlobalTech (Premium)
 
 # Test prompts with expected behaviors
 TEST_CASES = [

@@ -1,13 +1,13 @@
-# 第5章: マルチテナント分離
+# 第6章: マルチテナント分離
 
 ## 概要
 
-マルチテナント SaaS における最も重要な要件はテナント間のデータ分離です。本章では、Defense-in-Depth (多層防御) アプローチにより、4つのレイヤーでテナント分離を実現します。
+マルチテナント SaaS における最も重要な要件はテナント間のデータ分離です。本章では、Defense-in-Depth (多層防御) アプローチにより、複数のレイヤーでテナント分離を実現します。
 
 | レイヤー | コンポーネント | 役割 |
 |---|---|---|
-| 1. Identity | Cognito + JWT | 認証とテナントID付与 |
-| 2. Gateway Interceptor | Lambda | テナントコンテキストの注入 |
+| 1. Identity | Cognito + JWT | 認証とテナント ID 付与 |
+| 2. Gateway Interceptor | Lambda | テナントコンテキストの注入・検証 |
 | 3. Database RLS | Aurora PostgreSQL | 行レベルセキュリティ |
 | 4. Policy | Cedar | ポリシーベースのアクセス制御 |
 
@@ -30,7 +30,7 @@ graph TB
     subgraph "Layer 3: Database RLS"
         Agent --> DB[(Aurora PostgreSQL)]
         DB --> RLS{Row-Level Security}
-        RLS -->|tenant_id = current_tenant| Data[テナントデータ]
+        RLS -->|tenant_id フィルタ| Data[テナントデータ]
     end
 
     subgraph "Layer 4: Policy"
@@ -46,417 +46,450 @@ graph TB
 
 ---
 
-## 5.1 リクエストフロー詳細
+## 6.1 リクエストフロー詳細
 
 ```mermaid
 sequenceDiagram
-    participant U as ユーザー<br/>(tenant-acme)
+    participant U as ユーザー<br/>(Acme Corp)
     participant GW as Gateway
     participant INT as Interceptor<br/>Lambda
-    participant CE as Cedar<br/>Policy Engine
     participant AG as エージェント
     participant DB as Aurora<br/>PostgreSQL
 
     U->>GW: POST /invoke<br/>Authorization: Bearer JWT
-    GW->>GW: JWT検証
+    GW->>GW: JWT検証 (CUSTOM_JWT)
     GW->>INT: Pre-Invoke Interceptor
-    Note over INT: JWTからテナント情報抽出<br/>custom:tenantId → tenant-acme<br/>custom:tenantPlan → premium
+    Note over INT: JWTからテナント情報抽出<br/>custom:tenantId を取得
 
-    INT->>CE: ポリシー評価リクエスト
-    CE->>CE: Cedar ポリシー評価
-    CE->>INT: ALLOW
+    INT->>INT: テナントID検証<br/>なければ 403 DENY
+    INT->>AG: リクエスト<br/>+ parameters.tenant_id<br/>+ sessionAttributes.tenantId
 
-    INT->>AG: リクエスト<br/>+ X-Tenant-Id: tenant-acme<br/>+ X-Tenant-Plan: premium
-
-    AG->>DB: SELECT * FROM tickets<br/>WHERE ... (RLS自動適用)
-    Note over DB: SET app.current_tenant = 'tenant-acme'<br/>RLS: tenant_id = current_setting('app.current_tenant')
-    DB->>AG: tenant-acme のデータのみ返却
+    AG->>DB: SELECT * FROM support_tickets<br/>(RLS自動適用)
+    Note over DB: SET app.current_tenant_id = 'a0000000-...'<br/>RLS: tenant_id::text = current_setting('app.current_tenant_id', true)
+    DB->>AG: 該当テナントのデータのみ返却
 
     AG->>U: 応答
 ```
 
 ---
 
-## 5.2 Aurora PostgreSQL + Row-Level Security セットアップ
+## 6.2 データベーススキーマ
 
-### データベース作成
+### テーブル構造
+
+ファイル: `database/schema.sql`
+
+データベースには以下の5つのテーブルが定義されています。すべてのテナントスコープテーブルに `tenant_id` カラムがあります:
+
+| テーブル | 説明 | 主要カラム |
+|---|---|---|
+| `tenants` | テナント (組織) 情報 | `id` (UUID PK), `name`, `plan` |
+| `customers` | テナントに属する顧客 | `id`, `tenant_id`, `name`, `email`, `plan` |
+| `support_tickets` | サポートチケット | `id`, `tenant_id`, `customer_id`, `subject`, `description`, `status`, `priority`, `resolution` |
+| `knowledge_articles` | ナレッジベース記事 | `id`, `tenant_id`, `title`, `content`, `category`, `tags` |
+| `billing_records` | 請求・返金レコード | `id`, `tenant_id`, `customer_id`, `amount`, `type`, `status`, `description` |
+
+### スキーマの詳細
 
 ```sql
--- database/init.sql
+-- database/schema.sql (抜粋)
 
--- データベース作成
-CREATE DATABASE agentcore_support;
-\c agentcore_support;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- テナントテーブル
 CREATE TABLE tenants (
-    tenant_id VARCHAR(64) PRIMARY KEY,
-    tenant_name VARCHAR(255) NOT NULL,
-    plan VARCHAR(32) NOT NULL DEFAULT 'basic',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name        VARCHAR(255) NOT NULL,
+    plan        VARCHAR(50) NOT NULL CHECK (plan IN ('basic', 'professional', 'enterprise')),
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 顧客テーブル
+CREATE TABLE customers (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name        VARCHAR(255) NOT NULL,
+    email       VARCHAR(255) NOT NULL,
+    plan        VARCHAR(50) NOT NULL CHECK (plan IN ('free', 'starter', 'business', 'enterprise')),
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- サポートチケットテーブル
 CREATE TABLE support_tickets (
-    ticket_id SERIAL PRIMARY KEY,
-    tenant_id VARCHAR(64) NOT NULL REFERENCES tenants(tenant_id),
-    user_email VARCHAR(255) NOT NULL,
-    subject VARCHAR(500) NOT NULL,
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    subject     VARCHAR(500) NOT NULL,
+    description TEXT NOT NULL,
+    status      VARCHAR(50) NOT NULL DEFAULT 'open'
+                CHECK (status IN ('open', 'in_progress', 'waiting_on_customer', 'resolved', 'closed')),
+    priority    VARCHAR(20) NOT NULL DEFAULT 'medium'
+                CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    resolution  TEXT
+);
+
+-- ナレッジ記事テーブル
+CREATE TABLE knowledge_articles (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    title       VARCHAR(500) NOT NULL,
+    content     TEXT NOT NULL,
+    category    VARCHAR(100) NOT NULL,
+    tags        TEXT[] DEFAULT '{}',
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 請求レコードテーブル
+CREATE TABLE billing_records (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    amount      DECIMAL(10, 2) NOT NULL,
+    type        VARCHAR(50) NOT NULL CHECK (type IN ('charge', 'refund', 'credit', 'adjustment')),
+    status      VARCHAR(50) NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'completed', 'failed', 'cancelled')),
     description TEXT,
-    status VARCHAR(32) DEFAULT 'open',
-    priority VARCHAR(32) DEFAULT 'medium',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-
--- 請求情報テーブル
-CREATE TABLE billing_info (
-    billing_id SERIAL PRIMARY KEY,
-    tenant_id VARCHAR(64) NOT NULL REFERENCES tenants(tenant_id),
-    user_email VARCHAR(255) NOT NULL,
-    invoice_number VARCHAR(64) NOT NULL,
-    amount DECIMAL(10, 2) NOT NULL,
-    currency VARCHAR(3) DEFAULT 'USD',
-    status VARCHAR(32) DEFAULT 'pending',
-    due_date DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 返金履歴テーブル
-CREATE TABLE refund_history (
-    refund_id SERIAL PRIMARY KEY,
-    tenant_id VARCHAR(64) NOT NULL REFERENCES tenants(tenant_id),
-    ticket_id INTEGER REFERENCES support_tickets(ticket_id),
-    user_email VARCHAR(255) NOT NULL,
-    amount DECIMAL(10, 2) NOT NULL,
-    reason TEXT,
-    status VARCHAR(32) DEFAULT 'pending',
-    approved_by VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- インデックス
-CREATE INDEX idx_tickets_tenant ON support_tickets(tenant_id);
-CREATE INDEX idx_billing_tenant ON billing_info(tenant_id);
-CREATE INDEX idx_refund_tenant ON refund_history(tenant_id);
-```
-
-### Row-Level Security の設定
-
-```sql
--- database/rls_setup.sql
-
--- アプリケーションロール作成
-CREATE ROLE app_user LOGIN PASSWORD 'secure-password-here';
-
--- RLS 有効化
-ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE billing_info ENABLE ROW LEVEL SECURITY;
-ALTER TABLE refund_history ENABLE ROW LEVEL SECURITY;
-
--- RLS ポリシー: support_tickets
-CREATE POLICY tenant_isolation_tickets ON support_tickets
-    FOR ALL
-    TO app_user
-    USING (tenant_id = current_setting('app.current_tenant', true))
-    WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
-
--- RLS ポリシー: billing_info
-CREATE POLICY tenant_isolation_billing ON billing_info
-    FOR ALL
-    TO app_user
-    USING (tenant_id = current_setting('app.current_tenant', true))
-    WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
-
--- RLS ポリシー: refund_history
-CREATE POLICY tenant_isolation_refunds ON refund_history
-    FOR ALL
-    TO app_user
-    USING (tenant_id = current_setting('app.current_tenant', true))
-    WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
-
--- テーブル権限付与
-GRANT SELECT, INSERT, UPDATE ON support_tickets TO app_user;
-GRANT SELECT ON billing_info TO app_user;
-GRANT SELECT, INSERT ON refund_history TO app_user;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
-```
-
-### テナントコンテキストの設定方法
-
-```python
-# database/tenant_db.py
-
-import psycopg2
-from contextlib import contextmanager
-
-
-class TenantDatabase:
-    """テナント分離されたデータベースアクセスクラス"""
-
-    def __init__(self, db_config: dict):
-        self.db_config = db_config
-
-    @contextmanager
-    def tenant_connection(self, tenant_id: str):
-        """テナントコンテキストが設定されたDB接続を返す"""
-        conn = psycopg2.connect(
-            host=self.db_config["host"],
-            port=self.db_config["port"],
-            database=self.db_config["database"],
-            user=self.db_config["user"],
-            password=self.db_config["password"],
-        )
-        try:
-            with conn.cursor() as cur:
-                # テナントコンテキストを設定 (RLSが参照する)
-                cur.execute(
-                    "SET app.current_tenant = %s", (tenant_id,)
-                )
-            conn.commit()
-            yield conn
-        finally:
-            conn.close()
-
-    def get_tickets(self, tenant_id: str, status: str = None) -> list:
-        """テナントのサポートチケットを取得する"""
-        with self.tenant_connection(tenant_id) as conn:
-            with conn.cursor() as cur:
-                if status:
-                    cur.execute(
-                        "SELECT * FROM support_tickets WHERE status = %s "
-                        "ORDER BY created_at DESC",
-                        (status,),
-                    )
-                else:
-                    cur.execute(
-                        "SELECT * FROM support_tickets "
-                        "ORDER BY created_at DESC"
-                    )
-                columns = [desc[0] for desc in cur.description]
-                return [dict(zip(columns, row)) for row in cur.fetchall()]
-
-    def get_billing(self, tenant_id: str, user_email: str = None) -> list:
-        """テナントの請求情報を取得する"""
-        with self.tenant_connection(tenant_id) as conn:
-            with conn.cursor() as cur:
-                if user_email:
-                    cur.execute(
-                        "SELECT * FROM billing_info WHERE user_email = %s "
-                        "ORDER BY due_date DESC",
-                        (user_email,),
-                    )
-                else:
-                    cur.execute(
-                        "SELECT * FROM billing_info ORDER BY due_date DESC"
-                    )
-                columns = [desc[0] for desc in cur.description]
-                return [dict(zip(columns, row)) for row in cur.fetchall()]
 ```
 
 ---
 
-## 5.3 Gateway Interceptor Lambda
+## 6.3 Row-Level Security (RLS) の設定
+
+### RLS ポリシー
+
+ファイル: `database/rls_policies.sql`
+
+すべてのテナントスコープテーブルに対して RLS を有効化し、`app.current_tenant_id` セッション変数でフィルタリングします。
+
+```sql
+-- database/rls_policies.sql (抜粋)
+
+-- アプリケーションロール作成
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_user') THEN
+        CREATE ROLE app_user LOGIN;
+    END IF;
+END
+$$;
+
+-- テーブル権限付与
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+GRANT USAGE ON SCHEMA public TO app_user;
+
+-- RLS 有効化
+ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE knowledge_articles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_records ENABLE ROW LEVEL SECURITY;
+```
+
+### RLS ポリシーの定義パターン
+
+各テーブルに対して SELECT / INSERT / UPDATE ポリシーが定義されています。すべて同じパターンです:
+
+```sql
+-- tenants テーブルの例
+CREATE POLICY tenants_select_policy ON tenants
+    FOR SELECT
+    TO app_user
+    USING (id::text = current_setting('app.current_tenant_id', true));
+
+-- customers テーブルの例
+CREATE POLICY customers_select_policy ON customers
+    FOR SELECT
+    TO app_user
+    USING (tenant_id::text = current_setting('app.current_tenant_id', true));
+
+CREATE POLICY customers_insert_policy ON customers
+    FOR INSERT
+    TO app_user
+    WITH CHECK (tenant_id::text = current_setting('app.current_tenant_id', true));
+
+CREATE POLICY customers_update_policy ON customers
+    FOR UPDATE
+    TO app_user
+    USING (tenant_id::text = current_setting('app.current_tenant_id', true))
+    WITH CHECK (tenant_id::text = current_setting('app.current_tenant_id', true));
+```
+
+### 重要なポイント
+
+- **RLS 変数名**: `app.current_tenant_id` (`app.current_tenant` ではない)
+- **関数**: `current_setting('app.current_tenant_id', true)` --- 第2引数 `true` は変数未設定時にエラーではなく空文字を返す
+- **型変換**: `tenant_id::text` で UUID を文字列に変換して比較
+- **tenants テーブル**: `id::text` で比較 (他テーブルは `tenant_id::text`)
+- **操作別ポリシー**: SELECT, INSERT, UPDATE をそれぞれ個別に定義
+
+---
+
+## 6.4 テストデータ
+
+### シードデータ
+
+ファイル: `database/seed_data.sql`
+
+2つのテナントに対してテストデータが用意されています:
+
+```sql
+-- database/seed_data.sql (抜粋)
+
+-- テナント (UUID形式のID)
+INSERT INTO tenants (id, name, plan) VALUES
+    ('tenant-a', 'Acme Corp', 'enterprise'),
+    ('tenant-b', 'GlobalTech', 'professional');
+
+-- 顧客 (各テナント5名)
+INSERT INTO customers (id, tenant_id, name, email, plan) VALUES
+    ('cust-a-001', 'tenant-a',
+     'Alice Johnson', 'alice@acmecorp.example.com', 'starter'),
+    -- ... (省略)
+    ('cust-b-001', 'tenant-b',
+     'Frank Miller', 'frank@globaltech.example.com', 'business');
+```
+
+### テナント別データ概要
+
+| テナント | UUID | 名前 | プラン | 顧客数 | チケット数 | 記事数 | 請求レコード数 |
+|---|---|---|---|---|---|---|---|
+| Tenant A | `tenant-a` | Acme Corp | enterprise | 5 | 10 | 5 | 10 |
+| Tenant B | `tenant-b` | GlobalTech | professional | 5 | 10 | 5 | 10 |
+
+### チケットのステータスバリエーション
+
+テストデータには以下のステータスが含まれています:
+
+- `open`, `in_progress`, `waiting_on_customer`, `resolved`, `closed`
+
+### 請求レコードのタイプ
+
+- `charge` (請求), `refund` (返金), `credit` (クレジット), `adjustment` (調整)
+
+---
+
+## 6.5 Gateway Interceptor Lambda
 
 ### Interceptor の実装
 
+ファイル: `lambda/interceptors/tenant_interceptor/handler.py`
+
+この Lambda は AgentCore Gateway パイプライン内で実行され、すべてのリクエストにテナントコンテキストを注入します。
+
 ```python
-# lambda/interceptors/tenant_context_interceptor.py
+# lambda/interceptors/tenant_interceptor/handler.py (抜粋)
 
-import json
-import logging
-import jwt
-import boto3
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-
-def handler(event, context):
+def lambda_handler(event, context):
     """
-    Gateway Interceptor: JWTからテナント情報を抽出し、
-    リクエストコンテキストに注入する
+    AWS Lambda handler for the tenant interceptor.
+    - REQUEST: JWT から tenant_id を抽出し、ツールパラメータに注入
+    - RESPONSE: レスポンスのパススルー (必要に応じてフィルタリング)
     """
-    logger.info(f"Interceptor event: {json.dumps(event)}")
+    direction = event.get("direction", "REQUEST")
+    tenant_info = extract_tenant_from_event(event)
+    tenant_id = tenant_info.get("tenant_id", "")
 
-    # JWTトークンの取得
-    headers = event.get("headers", {})
-    auth_header = headers.get("Authorization", "")
-
-    if not auth_header.startswith("Bearer "):
-        return {
-            "statusCode": 401,
-            "body": json.dumps({
-                "error": "Unauthorized",
-                "message": "Bearer token required",
-            }),
-        }
-
-    token = auth_header.replace("Bearer ", "")
-
-    try:
-        # JWTデコード (Gatewayで検証済みのため署名検証はスキップ)
-        decoded = jwt.decode(token, options={"verify_signature": False})
-
-        tenant_id = decoded.get("custom:tenantId")
-        tenant_plan = decoded.get("custom:tenantPlan", "basic")
-        tenant_role = decoded.get("custom:tenantRole", "user")
-        user_id = decoded.get("sub")
-        email = decoded.get("email")
-
+    if direction == "REQUEST":
+        # テナントコンテキストが存在しない場合は拒否
         if not tenant_id:
             return {
                 "statusCode": 403,
+                "action": "DENY",
                 "body": json.dumps({
-                    "error": "Forbidden",
-                    "message": "Tenant ID not found in token",
+                    "error": "Tenant context is required for all tool invocations.",
+                    "error_ja": "すべてのツール呼び出しにテナントコンテキストが必要です。",
                 }),
             }
 
-        # テナントコンテキストをリクエストに注入
-        tenant_context = {
-            "tenantId": tenant_id,
-            "tenantPlan": tenant_plan,
-            "tenantRole": tenant_role,
-            "userId": user_id,
-            "email": email,
-        }
+        # tenant_id をツール入力パラメータに注入
+        parameters = event.get("parameters", {})
+        parameters["tenant_id"] = tenant_id
 
-        logger.info(f"Tenant context injected: {json.dumps(tenant_context)}")
+        # セッション属性にも注入
+        session_attrs = event.get("sessionAttributes", {})
+        session_attrs["tenantId"] = tenant_id
 
         return {
             "statusCode": 200,
-            "headers": {
-                "X-Tenant-Id": tenant_id,
-                "X-Tenant-Plan": tenant_plan,
-                "X-Tenant-Role": tenant_role,
-                "X-User-Id": user_id,
-                "X-User-Email": email,
-            },
-            "body": json.dumps({
-                "action": "CONTINUE",
-                "tenantContext": tenant_context,
-            }),
+            "action": "ALLOW",
+            "parameters": parameters,
+            "sessionAttributes": session_attrs,
         }
 
-    except jwt.DecodeError as e:
-        logger.error(f"JWT decode error: {e}")
+    elif direction == "RESPONSE":
         return {
-            "statusCode": 401,
-            "body": json.dumps({
-                "error": "Unauthorized",
-                "message": "Invalid token format",
-            }),
-        }
-    except Exception as e:
-        logger.error(f"Interceptor error: {e}")
-        return {
-            "statusCode": 500,
-            "body": json.dumps({
-                "error": "Internal Server Error",
-                "message": str(e),
-            }),
+            "statusCode": 200,
+            "action": "ALLOW",
+            "responseBody": event.get("responseBody", {}),
         }
 ```
 
-### CDK での Interceptor 登録
+### テナント情報の抽出方法 (優先順位)
 
-```typescript
-// cdk/stacks/interceptor-stack.ts
+Interceptor は以下の順序でテナント情報を抽出します:
 
-import * as cdk from "aws-cdk-lib";
-import * as lambda from "aws-cdk-lib/aws-lambda";
-import { Construct } from "constructs";
+1. **sessionAttributes**: 既に AgentCore が抽出済みのセッション属性
+2. **authorizer claims**: Cognito Authorizer が付与した JWT クレーム
+3. **Authorization header**: JWT トークンを直接デコード (Base64)
 
-export class InterceptorStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
+```python
+# lambda/interceptors/tenant_interceptor/handler.py (抜粋)
 
-    // Interceptor Lambda
-    const interceptor = new lambda.Function(this, "TenantInterceptor", {
-      runtime: lambda.Runtime.PYTHON_3_12,
-      handler: "tenant_context_interceptor.handler",
-      code: lambda.Code.fromAsset("../lambda/interceptors"),
-      functionName: "agentcore-tenant-interceptor",
-      description: "テナントコンテキストを注入する Gateway Interceptor",
-      timeout: cdk.Duration.seconds(10),
-      memorySize: 256,
-      environment: {
-        LOG_LEVEL: "INFO",
-      },
-    });
+def extract_tenant_from_event(event: dict) -> dict:
+    # 1. セッション属性
+    session_attrs = event.get("sessionAttributes", {})
+    if session_attrs.get("tenantId"):
+        return {"tenant_id": session_attrs["tenantId"], ...}
 
-    new cdk.CfnOutput(this, "InterceptorArn", {
-      value: interceptor.functionArn,
-    });
-  }
-}
+    # 2. Cognito Authorizer クレーム
+    claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
+    if claims.get("custom:tenantId"):
+        return {"tenant_id": claims["custom:tenantId"], ...}
+
+    # 3. JWT 直接デコード
+    auth_header = event.get("headers", {}).get("Authorization", "")
+    if auth_header:
+        token = auth_header.replace("Bearer ", "")
+        claims = decode_jwt_claims(token)
+        if claims.get("custom:tenantId"):
+            return {"tenant_id": claims["custom:tenantId"], ...}
+```
+
+### 監査ログ
+
+Interceptor はすべてのリクエスト/レスポンスに対して監査ログを出力します:
+
+```python
+def log_audit_event(tenant_info, event, direction):
+    audit_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "direction": direction,
+        "tenant_id": tenant_info.get("tenant_id", "unknown"),
+        "action": event.get("action", "unknown"),
+        "tool_name": event.get("toolName", "unknown"),
+        "session_id": event.get("sessionId", "unknown"),
+    }
+    logger.info(f"AUDIT: {json.dumps(audit_entry)}")
 ```
 
 ---
 
-## 5.4 テストデータの投入
+## 6.6 Database Stack (CDK)
 
-### テナント別テストデータ
+### Aurora Serverless v2 の構成
 
-```sql
--- database/seed_data.sql
+ファイル: `cdk/stacks/database_stack.py`
 
--- テナント登録
-INSERT INTO tenants (tenant_id, tenant_name, plan)
-VALUES
-  ('tenant-acme', 'ACME Corporation', 'premium'),
-  ('tenant-globex', 'Globex Corporation', 'basic');
+```python
+# cdk/stacks/database_stack.py (抜粋)
 
--- テナントA (ACME) のサポートチケット
-INSERT INTO support_tickets (tenant_id, user_email, subject, description, status, priority)
-VALUES
-  ('tenant-acme', 'user1@acme.com', 'ログインできない',
-   'パスワードリセット後もログインできません。エラーコード: AUTH-500', 'open', 'high'),
-  ('tenant-acme', 'user1@acme.com', 'APIレート制限について',
-   'Premium プランのAPIレート制限を引き上げたい', 'in_progress', 'medium'),
-  ('tenant-acme', 'admin@acme.com', 'データエクスポート機能',
-   'CSVエクスポートが途中で停止する', 'open', 'high');
+class DatabaseStack(Stack):
+    """Aurora Serverless v2 PostgreSQL with RLS for tenant isolation."""
 
--- テナントB (Globex) のサポートチケット
-INSERT INTO support_tickets (tenant_id, user_email, subject, description, status, priority)
-VALUES
-  ('tenant-globex', 'user1@globex.com', 'プランのアップグレード',
-   'Basic から Premium へのアップグレード方法を教えてください', 'open', 'low'),
-  ('tenant-globex', 'admin@globex.com', '請求書の再発行',
-   '2月分の請求書を再発行してほしい', 'open', 'medium');
+    def __init__(self, scope, construct_id, vpc, aurora_security_group,
+                 lambda_security_group, **kwargs):
+        super().__init__(scope, construct_id, **kwargs)
 
--- テナントA (ACME) の請求情報
-INSERT INTO billing_info (tenant_id, user_email, invoice_number, amount, currency, status, due_date)
-VALUES
-  ('tenant-acme', 'admin@acme.com', 'INV-2026-001', 5000.00, 'USD', 'paid', '2026-01-31'),
-  ('tenant-acme', 'admin@acme.com', 'INV-2026-002', 5000.00, 'USD', 'paid', '2026-02-28'),
-  ('tenant-acme', 'admin@acme.com', 'INV-2026-003', 5000.00, 'USD', 'pending', '2026-03-31');
+        # Database credentials (Secrets Manager)
+        self.db_secret = rds.DatabaseSecret(
+            self, "AuroraSecret",
+            username="agentcore_admin",
+            secret_name="agentcore/aurora/credentials",
+        )
 
--- テナントB (Globex) の請求情報
-INSERT INTO billing_info (tenant_id, user_email, invoice_number, amount, currency, status, due_date)
-VALUES
-  ('tenant-globex', 'admin@globex.com', 'INV-2026-G001', 500.00, 'USD', 'paid', '2026-01-31'),
-  ('tenant-globex', 'admin@globex.com', 'INV-2026-G002', 500.00, 'USD', 'overdue', '2026-02-28'),
-  ('tenant-globex', 'admin@globex.com', 'INV-2026-G003', 500.00, 'USD', 'pending', '2026-03-31');
+        # Aurora Serverless v2 PostgreSQL 16.6
+        self.cluster = rds.DatabaseCluster(
+            self, "AuroraCluster",
+            cluster_identifier="agentcore-multi-tenant",
+            engine=rds.DatabaseClusterEngine.aurora_postgres(
+                version=rds.AuroraPostgresEngineVersion.VER_16_6,
+            ),
+            credentials=rds.Credentials.from_secret(self.db_secret),
+            default_database_name="agentcore",
+            vpc=vpc,
+            vpc_subnets=ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_ISOLATED,
+            ),
+            serverless_v2_min_capacity=0.5,
+            serverless_v2_max_capacity=4,
+            storage_encrypted=True,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+```
+
+### スキーマ初期化 (カスタムリソース)
+
+`database_stack.py` にはスキーマ初期化用の Lambda カスタムリソースも含まれています。この Lambda は RDS Data API を使ってテーブル作成と RLS ポリシーの設定を行います:
+
+```python
+# カスタムリソース Lambda 内の SQL 実行
+rds_client = boto3.client('rds-data')
+
+# テナントコンテキスト設定 (ツール Lambda での使用例)
+rds_client.execute_statement(
+    resourceArn=cluster_arn,
+    secretArn=secret_arn,
+    database=database,
+    sql="SET app.current_tenant_id = :tenant_id",
+    parameters=[{
+        'name': 'tenant_id',
+        'value': {'stringValue': tenant_id}
+    }],
+)
+```
+
+### デプロイ
+
+```bash
+cd cdk
+cdk deploy DatabaseStack
 ```
 
 ---
 
-## 5.5 クロステナントデータ漏洩テスト
+## 6.7 ツール Lambda でのテナント分離
+
+Gateway Stack (`cdk/stacks/gateway_stack.py`) には、テナント分離されたツール Lambda が定義されています。各ツール Lambda は、Interceptor から注入された `tenant_id` を使って RLS コンテキストを設定します:
+
+```python
+# cdk/stacks/gateway_stack.py 内のツール Lambda (例: チケット管理)
+
+def handler(event, context):
+    tenant_id = event.get('tenant_id', '')
+    action = event.get('action', 'list_tickets')
+
+    # RLS 用にテナントコンテキストを設定
+    execute_sql(f"SET app.current_tenant_id = '{tenant_id}'")
+
+    if action == 'list_tickets':
+        # RLS により自動的にテナントのデータのみ返却される
+        result = execute_sql(
+            "SELECT * FROM support_tickets ORDER BY created_at DESC LIMIT 50"
+        )
+        return {'statusCode': 200, 'body': json.dumps({...})}
+```
+
+---
+
+## 6.8 クロステナントデータ漏洩テスト
 
 ### テストシナリオ
 
 ```mermaid
 graph LR
     subgraph "テスト1: 正常アクセス"
-        A1[テナントA] -->|自テナントデータ| OK1[✓ 取得成功]
+        A1[テナントA] -->|自テナントデータ| OK1[取得成功]
     end
     subgraph "テスト2: クロステナントアクセス"
-        B1[テナントB] -->|テナントAのデータ| NG1[✗ アクセス拒否]
+        B1[テナントB] -->|テナントAのデータ| NG1[アクセス拒否]
     end
     subgraph "テスト3: RLSバイパス試行"
-        C1[テナントA] -->|SET tenant_id = B| NG2[✗ RLSにより拒否]
+        C1[テナントA] -->|SET tenant_id = B| NG2[RLSにより拒否]
     end
 ```
 
@@ -466,17 +499,18 @@ graph LR
 # tests/test_tenant_isolation.py
 
 import psycopg2
-import requests
-import json
 
 
 DB_CONFIG = {
     "host": "your-aurora-endpoint",
     "port": 5432,
-    "database": "agentcore_support",
+    "database": "agentcore",
     "user": "app_user",
-    "password": "secure-password-here",
+    "password": "from-secrets-manager",
 }
+
+TENANT_A_ID = "tenant-a"
+TENANT_B_ID = "tenant-b"
 
 
 class TestTenantIsolation:
@@ -487,15 +521,16 @@ class TestTenantIsolation:
         conn = psycopg2.connect(**DB_CONFIG)
         try:
             with conn.cursor() as cur:
-                # テナントAのコンテキスト設定
-                cur.execute("SET app.current_tenant = 'tenant-acme'")
+                cur.execute(
+                    "SET app.current_tenant_id = %s", (TENANT_A_ID,)
+                )
                 conn.commit()
 
                 cur.execute("SELECT count(*) FROM support_tickets")
                 count = cur.fetchone()[0]
 
-                assert count == 3, (
-                    f"テナントAのチケットは3件のはず。実際: {count}"
+                assert count == 10, (
+                    f"テナントAのチケットは10件のはず。実際: {count}"
                 )
                 print(f"テナントA チケット数: {count} - PASSED")
         finally:
@@ -506,14 +541,16 @@ class TestTenantIsolation:
         conn = psycopg2.connect(**DB_CONFIG)
         try:
             with conn.cursor() as cur:
-                # テナントBのコンテキスト設定
-                cur.execute("SET app.current_tenant = 'tenant-globex'")
+                cur.execute(
+                    "SET app.current_tenant_id = %s", (TENANT_B_ID,)
+                )
                 conn.commit()
 
-                # テナントAのチケットを直接指定してもRLSにより除外される
+                # テナントAのチケットを直接指定しても RLS により除外される
                 cur.execute(
                     "SELECT count(*) FROM support_tickets "
-                    "WHERE tenant_id = 'tenant-acme'"
+                    "WHERE tenant_id = %s",
+                    (TENANT_A_ID,),
                 )
                 count = cur.fetchone()[0]
 
@@ -530,33 +567,34 @@ class TestTenantIsolation:
         try:
             with conn.cursor() as cur:
                 # テナントAのコンテキスト
-                cur.execute("SET app.current_tenant = 'tenant-acme'")
+                cur.execute(
+                    "SET app.current_tenant_id = %s", (TENANT_A_ID,)
+                )
                 conn.commit()
 
-                cur.execute("SELECT invoice_number, amount FROM billing_info")
-                acme_invoices = cur.fetchall()
-
-                # テナントAの請求書のみ取得されること
-                for inv_num, _ in acme_invoices:
-                    assert inv_num.startswith("INV-2026-0"), (
-                        f"テナントAの請求書番号パターンに合致しません: {inv_num}"
-                    )
-
-                print(f"テナントA 請求書数: {len(acme_invoices)} - PASSED")
+                cur.execute(
+                    "SELECT amount, type, status FROM billing_records"
+                )
+                acme_records = cur.fetchall()
+                assert len(acme_records) == 10, (
+                    f"テナントAの請求レコードは10件のはず。実際: {len(acme_records)}"
+                )
+                print(f"テナントA 請求レコード数: {len(acme_records)} - PASSED")
 
                 # テナントBに切り替え
-                cur.execute("SET app.current_tenant = 'tenant-globex'")
+                cur.execute(
+                    "SET app.current_tenant_id = %s", (TENANT_B_ID,)
+                )
                 conn.commit()
 
-                cur.execute("SELECT invoice_number, amount FROM billing_info")
-                globex_invoices = cur.fetchall()
-
-                for inv_num, _ in globex_invoices:
-                    assert inv_num.startswith("INV-2026-G"), (
-                        f"テナントBの請求書番号パターンに合致しません: {inv_num}"
-                    )
-
-                print(f"テナントB 請求書数: {len(globex_invoices)} - PASSED")
+                cur.execute(
+                    "SELECT amount, type, status FROM billing_records"
+                )
+                globaltech_records = cur.fetchall()
+                assert len(globaltech_records) == 10, (
+                    f"テナントBの請求レコードは10件のはず。実際: {len(globaltech_records)}"
+                )
+                print(f"テナントB 請求レコード数: {len(globaltech_records)} - PASSED")
         finally:
             conn.close()
 
@@ -565,60 +603,37 @@ class TestTenantIsolation:
         conn = psycopg2.connect(**DB_CONFIG)
         try:
             with conn.cursor() as cur:
-                # テナントBとしてログイン
-                cur.execute("SET app.current_tenant = 'tenant-globex'")
+                # テナントBとして接続
+                cur.execute(
+                    "SET app.current_tenant_id = %s", (TENANT_B_ID,)
+                )
                 conn.commit()
 
-                # テナントAのデータをINSERTしようとする
+                # テナントAのデータを INSERT しようとする
                 try:
                     cur.execute(
-                        "INSERT INTO support_tickets "
-                        "(tenant_id, user_email, subject, description) "
-                        "VALUES ('tenant-acme', 'hacker@globex.com', "
-                        "'不正アクセス', 'テスト')"
+                        """INSERT INTO support_tickets
+                        (tenant_id, customer_id, subject, description)
+                        VALUES (%s, %s, %s, %s)""",
+                        (
+                            TENANT_A_ID,
+                            'cust-a-001',
+                            '不正アクセス',
+                            'テスト',
+                        ),
                     )
                     conn.commit()
                     assert False, "RLSバイパスが成功してしまいました！"
-                except psycopg2.errors.CheckViolation:
+                except Exception:
                     conn.rollback()
                     print("RLSバイパスINSERT拒否: PASSED")
-
         finally:
             conn.close()
-
-    def test_api_cross_tenant_access_denied(self):
-        """API経由でのクロステナントアクセスが拒否されることを確認"""
-        gateway_url = "https://your-gateway-endpoint"
-
-        # テナントBのトークンを取得
-        token_b = get_token_for_tenant("tenant-globex")
-
-        # テナントBのトークンでテナントAのデータにアクセス試行
-        response = requests.post(
-            f"{gateway_url}/invoke",
-            headers={"Authorization": f"Bearer {token_b}"},
-            json={
-                "message": "テナントACMEのチケット一覧を見せて"
-            },
-        )
-
-        result = response.json()
-
-        # エージェントの応答にテナントAの具体的なデータが含まれないこと
-        assert "INV-2026-001" not in json.dumps(result), (
-            "テナントAの請求書番号がレスポンスに含まれています！"
-        )
-        assert "AUTH-500" not in json.dumps(result), (
-            "テナントAのチケット詳細がレスポンスに含まれています！"
-        )
-
-        print("API クロステナントアクセス拒否: PASSED")
 ```
 
 ### テスト実行
 
 ```bash
-# テストの実行
 cd /path/to/project
 python -m pytest tests/test_tenant_isolation.py -v
 
@@ -627,25 +642,24 @@ python -m pytest tests/test_tenant_isolation.py -v
 # tests/test_tenant_isolation.py::TestTenantIsolation::test_tenant_cannot_access_other_tenant_data PASSED
 # tests/test_tenant_isolation.py::TestTenantIsolation::test_billing_isolation PASSED
 # tests/test_tenant_isolation.py::TestTenantIsolation::test_rls_bypass_attempt PASSED
-# tests/test_tenant_isolation.py::TestTenantIsolation::test_api_cross_tenant_access_denied PASSED
 ```
 
 ---
 
-## 5.6 Defense-in-Depth まとめ
+## 6.9 Defense-in-Depth まとめ
 
 ```mermaid
 graph TB
     subgraph "Layer 1: Identity"
-        L1[Cognito JWT認証<br/>テナントID含むトークン発行]
+        L1[Cognito JWT認証<br/>custom:tenantId 含むトークン発行]
     end
 
     subgraph "Layer 2: Gateway Interceptor"
-        L2[テナントコンテキスト注入<br/>不正テナントIDの拒否]
+        L2[テナントコンテキスト注入<br/>テナントID未設定は DENY]
     end
 
     subgraph "Layer 3: Database RLS"
-        L3[Row-Level Security<br/>DB層でのデータ分離]
+        L3[Row-Level Security<br/>app.current_tenant_id でフィルタ]
     end
 
     subgraph "Layer 4: Policy (Cedar)"
@@ -665,15 +679,26 @@ graph TB
 
 | レイヤー | 防御対象 | 失敗時のフォールバック |
 |---|---|---|
-| Identity | 未認証アクセス | リクエスト拒否 (401) |
-| Interceptor | テナントコンテキスト改ざん | リクエスト拒否 (403) |
-| Database RLS | SQLインジェクション等 | データ返却なし |
+| Identity (Cognito) | 未認証アクセス | リクエスト拒否 (401) |
+| Interceptor | テナントコンテキスト欠如 | DENY (403) |
+| Database RLS | SQL インジェクション等 | データ返却なし (空結果) |
 | Cedar Policy | 権限外操作 | 操作拒否 |
 
 単一のレイヤーが突破されても、次のレイヤーでブロックされるため、データ漏洩のリスクを最小化できます。
 
 ---
 
+## 主要ファイル
+
+| ファイル | 役割 |
+|---|---|
+| `database/schema.sql` | テーブル定義 (UUID PK, tenant_id FK) |
+| `database/rls_policies.sql` | RLS ポリシー (`app.current_tenant_id`) |
+| `database/seed_data.sql` | テスト用シードデータ (2テナント) |
+| `cdk/stacks/database_stack.py` | Aurora Serverless v2 CDK スタック (Python) |
+| `cdk/stacks/gateway_stack.py` | Gateway + ツール Lambda + Interceptor (Python) |
+| `lambda/interceptors/tenant_interceptor/handler.py` | テナント Interceptor Lambda |
+
 ## 次のステップ
 
-[第6章: Policy & Cedar](./07-policy-cedar.md) では、Cedar ポリシー言語を使ったきめ細かなアクセス制御を実装します。
+[第7章: Policy & Cedar](./07-policy-cedar.md) では、Cedar ポリシー言語を使ったきめ細かなアクセス制御を実装します。

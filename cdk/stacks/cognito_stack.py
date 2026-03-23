@@ -13,8 +13,6 @@ from aws_cdk import (
     RemovalPolicy,
     aws_cognito as cognito,
     aws_lambda as lambda_,
-    aws_lambda_python_alpha as lambda_python,
-    aws_iam as iam,
     aws_logs as logs,
 )
 from constructs import Construct

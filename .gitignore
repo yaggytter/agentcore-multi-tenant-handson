@@ -1,1 +1,14 @@
 .claude
+.venv
+.cdk-venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+cdk.out/
+cdk/cdk.out/
+cdk/.cdk-venv/
+agents/*/src/.venv/
+agents/*/.venv/
+
+logs

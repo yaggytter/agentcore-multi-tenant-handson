@@ -29,8 +29,8 @@ from botocore.exceptions import ClientError
 # Configuration
 # =============================================================================
 
-TENANT_A_ID = "a0000000-0000-0000-0000-000000000001"  # Acme Corp (Basic)
-TENANT_B_ID = "b0000000-0000-0000-0000-000000000001"  # GlobalTech (Premium)
+TENANT_A_ID = "tenant-a"  # Acme Corp (Basic)
+TENANT_B_ID = "tenant-b"  # GlobalTech (Premium)
 
 # Test user credentials (created during Cognito setup)
 TENANT_A_USER = {

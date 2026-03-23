@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: customersupport
+Version: 0.1.0
+Requires-Python: >=3.10
+Requires-Dist: aws-opentelemetry-distro>=0.10.0
+Requires-Dist: bedrock-agentcore>=1.0.3
+Requires-Dist: boto3>=1.38.0
+Requires-Dist: botocore>=1.38.0
+Requires-Dist: mcp>=1.19.0
+Requires-Dist: pytest>=7.0.0
+Requires-Dist: pytest-asyncio>=0.21.0
+Requires-Dist: python-dotenv>=1.2.1
+Requires-Dist: strands-agents>=1.13.0
+Requires-Dist: strands-agents-tools>=0.2.16

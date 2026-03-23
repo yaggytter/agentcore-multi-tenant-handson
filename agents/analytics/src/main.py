@@ -9,12 +9,14 @@ import logging
 import os
 
 from strands import Agent
-from strands.models.bedrock import BedrockModel
-from strands_tools import code_interpreter
+from strands_tools.code_interpreter import AgentCoreCodeInterpreter
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from model.load import load_model
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+app = BedrockAgentCoreApp()
+log = app.logger
+
+REGION = os.getenv("AWS_REGION", "us-east-1")
 
 SYSTEM_PROMPT = """あなたはマルチテナントSaaSプラットフォームのデータ分析エージェントです。
 サポートチケットの統計、傾向分析、レポート生成を行います。
@@ -27,49 +29,23 @@ You perform support ticket statistics, trend analysis, and report generation.
 1. **テナント分離 / Tenant Isolation**:
    - 分析は常に単一テナントのデータのみを対象としてください。
    - Always analyze data for a single tenant only.
-   - テナント間のデータ比較は行わないでください。
-   - Do NOT compare data across tenants.
 
 2. **利用可能な分析 / Available Analyses**:
    - チケット統計（ステータス別、優先度別、カテゴリ別）
-   - Ticket statistics (by status, priority, category)
    - 解決時間の分析
-   - Resolution time analysis
    - トレンド分析（日次、週次、月次）
-   - Trend analysis (daily, weekly, monthly)
    - SLA達成率
-   - SLA compliance rate
    - 顧客満足度レポート
-   - Customer satisfaction reports
 
 3. **出力形式 / Output Format**:
-   - データはテーブル形式で表示してください。
-   - Display data in table format.
    - Code Interpreterを使用してグラフやチャートを生成してください。
-   - Use Code Interpreter to generate graphs and charts.
    - 分析結果には必ずサマリーと推奨事項を含めてください。
-   - Always include a summary and recommendations in analysis results.
 
 4. **コード実行 / Code Execution**:
    - pandas, matplotlib, seaborn を使用してデータ分析を行ってください。
-   - Use pandas, matplotlib, seaborn for data analysis.
-   - グラフには日本語フォントの設定を含めてください（日本語テナントの場合）。
-   - Include Japanese font configuration for graphs (for Japanese tenants).
 """
 
-# Initialize the BedrockAgentCoreApp
-app = BedrockAgentCoreApp()
-
-# Configure the Bedrock model
-model = BedrockModel(
-    model_id="us.anthropic.claude-sonnet-4-6",
-    region_name=os.environ.get("AWS_REGION", "us-east-1"),
-    temperature=0.2,
-    max_tokens=4096,
-)
-
-# Sample ticket data for demo purposes.
-# In production, this would be fetched from a database via gateway tools.
+# Sample ticket data for demo purposes
 SAMPLE_TICKET_DATA = {
     "tenant-a": {
         "tickets": [
@@ -104,20 +80,19 @@ def get_ticket_data_as_context(tenant_id: str) -> str:
     tenant_data = SAMPLE_TICKET_DATA.get(tenant_id)
     if not tenant_data:
         return "No ticket data available for this tenant."
-
     return json.dumps(tenant_data["tickets"], indent=2, ensure_ascii=False)
 
 
-def extract_tenant_context(event: dict) -> dict:
-    """Extract tenant context from the invocation event."""
+def extract_tenant_context(payload: dict) -> dict:
+    """Extract tenant context from the invocation payload."""
     tenant_context = {}
-    session_attrs = event.get("sessionAttributes", {})
+    session_attrs = payload.get("sessionAttributes", {})
     if session_attrs:
         tenant_context["tenant_id"] = session_attrs.get("tenantId", "")
         tenant_context["tenant_name"] = session_attrs.get("tenantName", "")
         tenant_context["plan"] = session_attrs.get("tenantPlan", "")
 
-    request_context = event.get("requestContext", {})
+    request_context = payload.get("requestContext", {})
     authorizer = request_context.get("authorizer", {})
     claims = authorizer.get("claims", {})
     if claims and not tenant_context.get("tenant_id"):
@@ -129,35 +104,13 @@ def extract_tenant_context(event: dict) -> dict:
 
 
 @app.entrypoint
-def handle_request(event: dict, context: dict) -> dict:
-    """
-    Main entrypoint for the analytics agent.
-    Called by Bedrock AgentCore Runtime.
-    """
-    logger.info("Received analytics request")
+async def invoke(payload, context):
+    session_id = getattr(context, 'session_id', 'default')
 
-    tenant_context = extract_tenant_context(event)
+    # Extract tenant context
+    tenant_context = extract_tenant_context(payload)
     tenant_id = tenant_context.get("tenant_id", "unknown")
-    logger.info(f"Processing analytics request for tenant: {tenant_id}")
-
-    if not tenant_id or tenant_id == "unknown":
-        return {
-            "statusCode": 403,
-            "body": json.dumps({
-                "error": "Tenant context is required.",
-                "error_ja": "テナントコンテキストが必要です。",
-            }),
-        }
-
-    user_input = event.get("inputText", "")
-    if not user_input:
-        return {
-            "statusCode": 400,
-            "body": json.dumps({
-                "error": "No input provided.",
-                "error_ja": "入力が提供されていません。",
-            }),
-        }
+    log.info(f"Processing analytics request for tenant: {tenant_id}")
 
     # Prepare context with ticket data
     ticket_data = get_ticket_data_as_context(tenant_id)
@@ -175,32 +128,27 @@ Below is the ticket data for this tenant. Use it for analysis.
 ```
 """
 
-    try:
-        agent = Agent(
-            model=model,
-            system_prompt=enriched_prompt,
-            tools=[code_interpreter],
-        )
+    # Create code interpreter
+    code_interpreter = AgentCoreCodeInterpreter(
+        region=REGION,
+        session_name=session_id,
+        auto_create=True,
+        persist_sessions=True,
+    )
 
-        response = agent(user_input)
+    # Create agent
+    agent = Agent(
+        model=load_model(),
+        system_prompt=enriched_prompt,
+        tools=[code_interpreter.code_interpreter],
+    )
 
-        return {
-            "statusCode": 200,
-            "body": json.dumps({
-                "response": str(response),
-                "tenantId": tenant_id,
-            }),
-        }
+    # Execute and stream response
+    stream = agent.stream_async(payload.get("prompt", "チケットの統計を分析してください"))
 
-    except Exception as e:
-        logger.error(f"Analytics agent failed for tenant {tenant_id}: {e}")
-        return {
-            "statusCode": 500,
-            "body": json.dumps({
-                "error": f"An error occurred: {str(e)}",
-                "error_ja": f"エラーが発生しました: {str(e)}",
-            }),
-        }
+    async for event in stream:
+        if "data" in event and isinstance(event["data"], str):
+            yield event["data"]
 
 
 if __name__ == "__main__":

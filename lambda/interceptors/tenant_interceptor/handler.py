@@ -6,7 +6,6 @@ Also logs tenant context for audit purposes.
 
 import json
 import logging
-import time
 import base64
 from datetime import datetime, timezone
 

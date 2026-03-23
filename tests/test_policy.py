@@ -18,8 +18,8 @@ import pytest
 # Constants
 # =============================================================================
 
-TENANT_A_ID = "a0000000-0000-0000-0000-000000000001"
-TENANT_B_ID = "b0000000-0000-0000-0000-000000000001"
+TENANT_A_ID = "tenant-a"
+TENANT_B_ID = "tenant-b"
 
 # Tool action names
 TICKET_TOOLS = {"search_tickets", "create_ticket", "update_ticket"}

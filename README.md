@@ -134,11 +134,11 @@ pip install -r requirements.txt
 
 ```bash
 # デプロイしたエージェントの削除
-agentcore delete --agent-name support-agent-tenant-a
-agentcore delete --agent-name support-agent-tenant-b
+cd agents/customer_support
+agentcore destroy
 
-# Memory Store の削除
-aws bedrock-agent-core delete-memory-store --memory-store-id <MEMORY_STORE_ID>
+cd ../analytics
+agentcore destroy
 ```
 
 ### 2. CDK スタックの削除
@@ -148,23 +148,14 @@ cd cdk
 cdk destroy --all --force
 ```
 
-### 3. Lambda 関数の削除
-
-```bash
-aws lambda delete-function --function-name ticket-management
-aws lambda delete-function --function-name knowledge-search
-aws lambda delete-function --function-name billing-inquiry
-```
-
-### 4. 確認
+### 3. 確認
 
 ```bash
 # 残存リソースの確認
-aws bedrock-agent-core list-agent-runtimes
 aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE
 ```
 
-全てのリソースが削除されていることを確認してください。
+全てのリソースが削除されていることを確認してください。詳細は [docs/11-production-ready.md](docs/11-production-ready.md) のクリーンアップセクションを参照してください。
 
 ## ディレクトリ構成
 
