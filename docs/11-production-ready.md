@@ -737,7 +737,7 @@ pie title SupportHub 月間コスト構成例
 ```python
 # Prompt Caching を有効化してコスト削減
 agent = Agent(
-    model="us.anthropic.claude-sonnet-4-20250514",
+    model="us.anthropic.claude-sonnet-4-6",
     system_prompt=SYSTEM_PROMPT,  # 長いシステムプロンプトをキャッシュ
     model_config={
         "prompt_caching": {
@@ -760,7 +760,7 @@ triage_agent = Agent(
 
 # 詳細対応用の高性能モデル
 support_agent = Agent(
-    model="us.anthropic.claude-sonnet-4-20250514",
+    model="us.anthropic.claude-sonnet-4-6",
     system_prompt=DETAILED_SUPPORT_PROMPT,
 )
 

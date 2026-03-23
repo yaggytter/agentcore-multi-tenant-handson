@@ -139,32 +139,36 @@ docker info
 
 ---
 
-## Bedrock モデルアクセスの有効化
+## Bedrock モデルアクセスの確認
 
-本ハンズオンでは **Claude Sonnet 4** を使用します。
+本ハンズオンでは **Claude Sonnet 4.6** を使用します。
 
-### 手順
+> **Note**: 2025年9月以降、Amazon Bedrock のモデルアクセス承認は不要になりました。すべてのサーバーレスモデルは自動的に有効化されています。ただし、**Anthropic モデルの初回利用時**には、利用目的フォーム（First Time Use）の提出が必要です。
+
+### 初回利用時の手順（アカウントにつき1回のみ）
 
 1. AWS マネジメントコンソールにログイン
 2. リージョンを **us-east-1（バージニア北部）** に切り替え
 3. **Amazon Bedrock** サービスに移動
-4. 左メニューの **「モデルアクセス」** をクリック
-5. **「モデルアクセスを管理」** ボタンをクリック
-6. **Anthropic > Claude Sonnet 4** にチェックを入れる
-7. **「変更を保存」** をクリック
+4. 左メニューの **「モデルカタログ」** から Anthropic の Claude モデルを選択
+5. 初回の場合、利用目的フォームが表示されるので必要事項を入力して送信
+6. 送信後、**即座に**利用可能になります（承認待ちはありません）
+
+> **注意**: このフォーム提出を行わないと、API 呼び出しが約15分後に `403` エラーになります。
 
 ### CLI で確認
 
 ```bash
-aws bedrock list-foundation-models \
+# クロスリージョン推論プロファイルの確認
+aws bedrock list-inference-profiles \
   --region us-east-1 \
-  --query "modelSummaries[?modelId=='anthropic.claude-sonnet-4-20250514'].{ModelId:modelId,Status:modelLifecycle.status}" \
+  --query "inferenceProfileSummaries[?inferenceProfileId=='us.anthropic.claude-sonnet-4-6'].{ProfileId:inferenceProfileId,Status:status}" \
   --output table
 ```
 
 ステータスが `ACTIVE` であれば利用可能です。
 
-> **注意**: モデルアクセスの承認には数分かかる場合があります。
+> **注意**: Claude Sonnet 4.6 はクロスリージョン推論プロファイル経由でのアクセスが必要です。モデルIDとして `us.anthropic.claude-sonnet-4-6` を使用してください。
 
 ---
 
@@ -340,7 +344,7 @@ echo "=== 確認完了 ==="
 - [ ] Docker がインストールされ、起動している
 - [ ] `bedrock-agentcore`、`strands-agents`、`bedrock-agentcore-starter-toolkit` がインストールされている
 - [ ] AWS CLI が正しく設定されている（`aws sts get-caller-identity` が成功する）
-- [ ] Bedrock の Claude Sonnet 4 モデルアクセスが有効化されている
+- [ ] Bedrock の Anthropic 初回利用フォーム（FTU）が提出済みである
 - [ ] CDK ブートストラップが完了している
 - [ ] リージョンが `us-east-1` に設定されている
 

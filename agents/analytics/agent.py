@@ -62,7 +62,7 @@ app = BedrockAgentCoreApp()
 
 # Configure the Bedrock model
 model = BedrockModel(
-    model_id="us.anthropic.claude-sonnet-4-20250514",
+    model_id="us.anthropic.claude-sonnet-4-6",
     region_name=os.environ.get("AWS_REGION", "us-east-1"),
     temperature=0.2,
     max_tokens=4096,

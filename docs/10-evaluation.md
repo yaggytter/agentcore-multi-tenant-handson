@@ -119,7 +119,7 @@ response = bedrock_agent_core.evaluate_agent(
                 "evaluatorType": "BUILT_IN",
                 "builtInEvaluator": {
                     "name": "RELEVANCE",
-                    "modelId": "us.anthropic.claude-sonnet-4-20250514",
+                    "modelId": "us.anthropic.claude-sonnet-4-6",
                 }
             }
         ],
@@ -165,7 +165,7 @@ response = bedrock_agent_core.evaluate_agent(
                 "evaluatorType": "BUILT_IN",
                 "builtInEvaluator": {
                     "name": "FAITHFULNESS",
-                    "modelId": "us.anthropic.claude-sonnet-4-20250514",
+                    "modelId": "us.anthropic.claude-sonnet-4-6",
                 }
             }
         ],
@@ -202,7 +202,7 @@ response = bedrock_agent_core.evaluate_agent(
                 "evaluatorType": "BUILT_IN",
                 "builtInEvaluator": {
                     "name": "TOXICITY",
-                    "modelId": "us.anthropic.claude-sonnet-4-20250514",
+                    "modelId": "us.anthropic.claude-sonnet-4-6",
                 }
             }
         ],
@@ -426,7 +426,7 @@ def run_comprehensive_evaluation(tenant_id: str, dataset: list[dict]) -> dict:
                     "evaluatorType": "BUILT_IN",
                     "builtInEvaluator": {
                         "name": evaluator_name,
-                        "modelId": "us.anthropic.claude-sonnet-4-20250514",
+                        "modelId": "us.anthropic.claude-sonnet-4-6",
                     }
                 }],
                 "dataset": {

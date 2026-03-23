@@ -78,7 +78,7 @@ configure_telemetry(
 def create_agent(tenant_id: str):
     """テナント別のエージェントを作成（トレーシング付き）"""
     agent = Agent(
-        model="us.anthropic.claude-sonnet-4-20250514",
+        model="us.anthropic.claude-sonnet-4-6",
         system_prompt=f"""あなたはテナント {tenant_id} のカスタマーサポートエージェントです。
         丁寧かつ正確にお客様の質問にお答えください。""",
         trace_attributes={

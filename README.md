@@ -69,7 +69,7 @@ graph TB
     end
 
     subgraph "Foundation Model"
-        FM[Claude Sonnet 4]
+        FM[Claude Sonnet 4.6]
     end
 
     UA --> GW

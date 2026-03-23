@@ -384,7 +384,7 @@ class MemoryEnabledSupportAgent:
 
         # Strands Agent の初期化
         self.model = BedrockModel(
-            model_id="us.anthropic.claude-sonnet-4-20250514",
+            model_id="us.anthropic.claude-sonnet-4-6",
             region_name="us-east-1",
         )
         self.agent = Agent(

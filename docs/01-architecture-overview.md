@@ -50,7 +50,7 @@ graph TB
     end
 
     subgraph "外部サービス"
-        FM[Claude Sonnet 4]
+        FM[Claude Sonnet 4.6]
         L1[Lambda: チケット管理]
         L2[Lambda: ナレッジ検索]
         L3[Lambda: 請求照会]
@@ -320,7 +320,7 @@ sequenceDiagram
     participant ID as Identity
     participant PO as Policy
     participant RT as Runtime
-    participant FM as Claude Sonnet 4
+    participant FM as Claude Sonnet 4.6
     participant MEM as Memory
     participant TL as Tools (Lambda)
     participant OBS as Observability

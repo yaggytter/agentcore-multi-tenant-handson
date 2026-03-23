@@ -234,7 +234,7 @@ code_interpreter = CodeInterpreterTool(
 
 # 分析エージェントの作成
 analytics_agent = Agent(
-    model="us.anthropic.claude-sonnet-4-20250514",
+    model="us.anthropic.claude-sonnet-4-6",
     system_prompt="""あなたはマルチテナント SaaS プラットフォーム「SupportHub」のデータ分析エージェントです。
 
 以下の役割を担います：
@@ -420,7 +420,7 @@ print("PDF generated: report.pdf")
 
 # 高度な分析エージェント
 advanced_analytics_agent = Agent(
-    model="us.anthropic.claude-sonnet-4-20250514",
+    model="us.anthropic.claude-sonnet-4-6",
     system_prompt="""あなたは高度なデータ分析エージェントです。
 Code Interpreter を使って、データの取得・分析・可視化・レポート生成を一気通貫で行います。
 

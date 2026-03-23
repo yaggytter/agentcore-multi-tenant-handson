@@ -75,7 +75,7 @@ def handler(event, context):
                         'semanticMemoryStrategy': {
                             'name': 'stm-semantic',
                             'description': 'Semantic search over recent conversation turns',
-                            'model': 'anthropic.claude-sonnet-4-20250514',
+                            'model': 'us.anthropic.claude-sonnet-4-6',
                             'namespaceConfiguration': {
                                 'type': 'SESSION_SCOPED',
                             },
@@ -85,7 +85,7 @@ def handler(event, context):
                         'summaryMemoryStrategy': {
                             'name': 'stm-summary',
                             'description': 'Rolling summary of conversation context',
-                            'model': 'anthropic.claude-sonnet-4-20250514',
+                            'model': 'us.anthropic.claude-sonnet-4-6',
                             'namespaceConfiguration': {
                                 'type': 'SESSION_SCOPED',
                             },
@@ -105,7 +105,7 @@ def handler(event, context):
                         'semanticMemoryStrategy': {
                             'name': 'ltm-semantic',
                             'description': 'Persistent semantic memory across sessions',
-                            'model': 'anthropic.claude-sonnet-4-20250514',
+                            'model': 'us.anthropic.claude-sonnet-4-6',
                             'namespaceConfiguration': {
                                 'type': 'USER_SCOPED',
                             },
@@ -115,7 +115,7 @@ def handler(event, context):
                         'userPreferenceMemoryStrategy': {
                             'name': 'ltm-preferences',
                             'description': 'Extracted user preferences and patterns',
-                            'model': 'anthropic.claude-sonnet-4-20250514',
+                            'model': 'us.anthropic.claude-sonnet-4-6',
                             'namespaceConfiguration': {
                                 'type': 'USER_SCOPED',
                             },
