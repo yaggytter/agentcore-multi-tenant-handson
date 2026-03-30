@@ -473,7 +473,7 @@ agentcore dev
 
 ```bash
 # テナント A: チケットの確認
-curl -X POST http://localhost:8080/invoke \
+curl -X POST http://localhost:8080/invocations \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "オープン中のチケットを一覧表示してください",
@@ -485,7 +485,7 @@ curl -X POST http://localhost:8080/invoke \
   }'
 
 # テナント B: ナレッジ検索
-curl -X POST http://localhost:8080/invoke \
+curl -X POST http://localhost:8080/invocations \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "API のレート制限について教えてください",

@@ -342,13 +342,13 @@ agentcore dev
 
 ```bash
 # 1ターン目
-agentcore invoke --payload '{
+agentcore invoke '{
   "prompt": "注文番号 ORD-12345 のステータスを教えてください",
   "user_id": "user-001"
 }'
 
 # 2ターン目 (コンテキスト保持の確認)
-agentcore invoke --payload '{
+agentcore invoke '{
   "prompt": "その注文のキャンセルはできますか？",
   "user_id": "user-001"
 }'
@@ -362,14 +362,14 @@ agentcore invoke --payload '{
 
 ```bash
 # テナントAとして問い合わせ
-agentcore invoke --payload '{
+agentcore invoke '{
   "prompt": "プレミアムプランへのアップグレードについて教えてください",
   "user_id": "user-001",
   "sessionAttributes": {"tenantId": "tenant-a"}
 }'
 
 # テナントBとして同じ内容を問い合わせ (テナントAの履歴は見えない)
-agentcore invoke --payload '{
+agentcore invoke '{
   "prompt": "先ほどのアップグレードの件",
   "user_id": "user-101",
   "sessionAttributes": {"tenantId": "tenant-b"}

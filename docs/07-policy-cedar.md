@@ -427,30 +427,20 @@ DENY が想定通りのケースのみであることを確認した上で、ENF
 
 ```bash
 # テナント A として自テナントのデータにアクセス（PERMIT を期待）
-agentcore invoke \
-  --agent-id <AGENT_ID> \
-  --payload '{"prompt": "チケット一覧を表示して", "sessionAttributes": {"tenantId": "tenant-a"}}' \
-  --tenant-id tenant-a
+agentcore invoke '{"prompt": "チケット一覧を表示して", "sessionAttributes": {"tenantId": "tenant-a"}}'
 
 # テナント A としてテナント B のデータにアクセス（FORBID を期待）
-agentcore invoke \
-  --agent-id <AGENT_ID> \
-  --payload '{"prompt": "チケット一覧を表示して", "sessionAttributes": {"tenantId": "tenant-b"}}' \
-  --tenant-id tenant-a
+agentcore invoke '{"prompt": "チケット一覧を表示して", "sessionAttributes": {"tenantId": "tenant-b"}}'
 ```
 
 ### 検証 2: ツールアクセス制御の確認
 
 ```bash
 # Basic プランでチケット検索（PERMIT を期待）
-agentcore invoke \
-  --agent-id <AGENT_ID> \
-  --payload '{"prompt": "チケットを検索して", "sessionAttributes": {"tenantId": "tenant-a", "tenantPlan": "basic"}}'
+agentcore invoke '{"prompt": "チケットを検索して", "sessionAttributes": {"tenantId": "tenant-a", "tenantPlan": "basic"}}'
 
 # Basic プランで分析レポート生成（FORBID を期待）
-agentcore invoke \
-  --agent-id <AGENT_ID> \
-  --payload '{"prompt": "月次レポートを生成して", "sessionAttributes": {"tenantId": "tenant-a", "tenantPlan": "basic"}}'
+agentcore invoke '{"prompt": "月次レポートを生成して", "sessionAttributes": {"tenantId": "tenant-a", "tenantPlan": "basic"}}'
 ```
 
 ### 検証 3: 返金上限の確認

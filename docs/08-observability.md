@@ -309,14 +309,10 @@ cdk deploy AgentCoreObservabilityStack
 
 ```bash
 # テナント A としてリクエスト
-agentcore invoke \
-  --agent-id <AGENT_ID> \
-  --payload '{"prompt": "注文番号 12345 のステータスを教えてください", "sessionAttributes": {"tenantId": "tenant-a"}}'
+agentcore invoke '{"prompt": "注文番号 12345 のステータスを教えてください", "sessionAttributes": {"tenantId": "tenant-a"}}'
 
 # テナント B としてリクエスト
-agentcore invoke \
-  --agent-id <AGENT_ID> \
-  --payload '{"prompt": "料金プランの変更方法を教えてください", "sessionAttributes": {"tenantId": "tenant-b"}}'
+agentcore invoke '{"prompt": "料金プランの変更方法を教えてください", "sessionAttributes": {"tenantId": "tenant-b"}}'
 ```
 
 CloudWatch ダッシュボードで以下を確認します:

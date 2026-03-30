@@ -274,14 +274,10 @@ agentcore dev
 
 ```bash
 # テナント A のチケット分析を依頼
-agentcore invoke \
-  --agent-id <ANALYTICS_AGENT_ID> \
-  --payload '{"prompt": "チケットの統計を分析してください。カテゴリ別と優先度別の集計を出してください。", "sessionAttributes": {"tenantId": "tenant-a"}}'
+agentcore invoke '{"prompt": "チケットの統計を分析してください。カテゴリ別と優先度別の集計を出してください。", "sessionAttributes": {"tenantId": "tenant-a"}}'
 
 # テナント B のチケット分析を依頼
-agentcore invoke \
-  --agent-id <ANALYTICS_AGENT_ID> \
-  --payload '{"prompt": "チケットの解決率と平均満足度を計算してください。", "sessionAttributes": {"tenantId": "tenant-b"}}'
+agentcore invoke '{"prompt": "チケットの解決率と平均満足度を計算してください。", "sessionAttributes": {"tenantId": "tenant-b"}}'
 ```
 
 以下を確認してください:
@@ -297,14 +293,10 @@ agentcore invoke \
 
 ```bash
 # 1回目: 基本統計
-agentcore invoke \
-  --agent-id <ANALYTICS_AGENT_ID> \
-  --payload '{"prompt": "チケットの基本統計を出してください", "sessionAttributes": {"tenantId": "tenant-a"}}'
+agentcore invoke '{"prompt": "チケットの基本統計を出してください", "sessionAttributes": {"tenantId": "tenant-a"}}'
 
-# 2回目: 前回の結果を踏まえた深堀り
-agentcore invoke \
-  --agent-id <ANALYTICS_AGENT_ID> \
-  --payload '{"prompt": "先ほどのデータで、未解決チケットの詳細を分析してください", "sessionAttributes": {"tenantId": "tenant-a"}}'
+# 2回目: 前回の結果を踏まえた深堀り（同一セッションで）
+agentcore invoke '{"prompt": "先ほどのデータで、未解決チケットの詳細を分析してください", "sessionAttributes": {"tenantId": "tenant-a"}}'
 ```
 
 ---

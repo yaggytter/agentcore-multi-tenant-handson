@@ -431,7 +431,7 @@ echo $ID_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq .
 
 ```bash
 # テナントAとしてエージェント呼び出し
-agentcore invoke --payload '{
+agentcore invoke '{
   "prompt": "請求書の確認をお願いします",
   "user_id": "admin@acme.com"
 }'
